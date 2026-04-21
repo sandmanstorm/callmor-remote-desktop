@@ -1,0 +1,30 @@
+# Environment and secrets
+.env
+*.pem
+*.key
+
+# Rust
+target/
+**/*.rs.bk
+
+# Node
+web/node_modules/
+web/dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker volumes (if local)
+pgdata/
+minio-data/
+
+# Logs
+*.log

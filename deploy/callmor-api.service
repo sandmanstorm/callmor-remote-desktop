@@ -1,0 +1,27 @@
+[Unit]
+Description=Callmor API Server (Axum)
+After=network.target docker.service
+Wants=docker.service
+
+[Service]
+Type=simple
+User=pasharobert
+WorkingDirectory=/home/pasharobert/callmor-remote-desktop
+EnvironmentFile=/home/pasharobert/callmor-remote-desktop/.env
+ExecStart=/home/pasharobert/callmor-remote-desktop/target/release/callmor-api
+Restart=on-failure
+RestartSec=5
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=callmor-api
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/pasharobert/callmor-remote-desktop
+
+[Install]
+WantedBy=multi-user.target

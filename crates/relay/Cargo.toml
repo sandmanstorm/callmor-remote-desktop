@@ -1,0 +1,20 @@
+[package]
+name = "callmor-relay"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "callmor-relay"
+path = "src/main.rs"
+
+[dependencies]
+callmor-shared = { path = "../shared" }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+dotenvy.workspace = true
+tokio-tungstenite = "0.26"
+futures-util = "0.3"
