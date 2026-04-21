@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Callmor Remote Viewer</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #0a0a0a; color: #eee; }
+    .toolbar { background: #1a1a2e; padding: 0.6rem 1rem; display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; border-bottom: 1px solid #333; }
+    label { display: flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; }
+    input, button { padding: 0.35rem 0.5rem; border-radius: 4px; border: 1px solid #444; background: #222; color: #eee; font-size: 0.85rem; }
+    button { cursor: pointer; background: #2563eb; border-color: #2563eb; }
+    button:hover { background: #1d4ed8; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-red { background: #dc2626; border-color: #dc2626; }
+    .btn-red:hover { background: #b91c1c; }
+    .status { padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+    .status-disconnected { background: #7f1d1d; color: #fca5a5; }
+    .status-connecting { background: #78350f; color: #fcd34d; }
+    .status-connected { background: #14532d; color: #86efac; }
+    .viewer { display: flex; justify-content: center; align-items: center; min-height: calc(100vh - 50px); background: #000; }
+    video { max-width: 100%; max-height: calc(100vh - 50px); background: #111; }
+    .placeholder { color: #555; font-size: 1.2rem; }
+    #log { position: fixed; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,0.9); border-top: 1px solid #333; padding: 0.5rem; max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.75rem; }
+    .sys { color: #facc15; }
+    .err { color: #f87171; }
+    .ok { color: #4ade80; }
+    .ice { color: #a78bfa; }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <label>Relay: <input id="url" value="ws://localhost:8080" size="24"></label>
+    <label>Machine: <input id="machineId" value="agent-linux-1" size="16"></label>
+    <button id="connectBtn" onclick="connect()">Connect</button>
+    <button id="disconnectBtn" onclick="disconnect()" disabled class="btn-red">Disconnect</button>
+    <span id="statusBadge" class="status status-disconnected">Disconnected</span>
+  </div>
+
+  <div class="viewer">
+    <video id="remoteVideo" autoplay playsinline></video>
+    <div id="placeholder" class="placeholder">Click "Connect" to view remote desktop</div>
+  </div>
+
+  <div id="log"></div>
+
+  <script>
+    let ws = null;
+    let pc = null;
+
+    const ICE_SERVERS = [
+      { urls: 'stun:stun.l.google.com:19302' }
+    ];
+
+    function log(text, cls = 'sys') {
+      const el = document.getElementById('log');
+      const ts = new Date().toLocaleTimeString();
+      el.innerHTML += `<span class="${cls}">[${ts}] ${text}</span>\n`;
+      el.scrollTop = el.scrollHeight;
+    }
+
+    function setStatus(text, state) {
+      const badge = document.getElementById('statusBadge');
+      badge.textContent = text;
+      badge.className = `status status-${state}`;
+    }
+
+    function sendSignal(payload) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({ type: 'relay', payload }));
+    }
+
+    // --- Flow: Browser connects → sends "ready" → Agent sends offer → Browser answers ---
+
+    async function connect() {
+      const url = document.getElementById('url').value;
+      const machineId = document.getElementById('machineId').value;
+
+      document.getElementById('connectBtn').disabled = true;
+      setStatus('Connecting...', 'connecting');
+      log('Connecting to relay...');
+
+      ws = new WebSocket(url);
+
+      ws.onopen = () => {
+        ws.send(JSON.stringify({ type: 'hello', role: 'browser', machine_id: machineId }));
+        log(`Connected to relay as browser for "${machineId}"`, 'ok');
+
+        // Tell the agent we're ready — agent will create the offer
+        setTimeout(() => {
+          sendSignal({ signal: 'ready' });
+          log('Sent "ready" to agent, waiting for offer...', 'ok');
+        }, 300);
+      };
+
+      ws.onmessage = (e) => {
+        const msg = JSON.parse(e.data);
+        if (msg.type === 'relay' && msg.payload) {
+          handleSignal(msg.payload);
+        } else if (msg.type === 'error') {
+          log(`Relay error: ${msg.message}`, 'err');
+        }
+      };
+
+      ws.onclose = () => {
+        log('Relay disconnected');
+        cleanup();
+      };
+
+      ws.onerror = () => {
+        log('Relay connection error', 'err');
+        cleanup();
+      };
+    }
+
+    function cleanup() {
+      if (pc) { pc.close(); pc = null; }
+      document.getElementById('connectBtn').disabled = false;
+      document.getElementById('disconnectBtn').disabled = true;
+      document.getElementById('remoteVideo').srcObject = null;
+      document.getElementById('placeholder').style.display = '';
+      setStatus('Disconnected', 'disconnected');
+    }
+
+    function disconnect() {
+      if (ws) ws.close();
+      cleanup();
+    }
+
+    function createPeerConnection() {
+      pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+
+      pc.onicecandidate = (e) => {
+        if (e.candidate) {
+          log('Sending ICE candidate', 'ice');
+          sendSignal({
+            signal: 'ice-candidate',
+            candidate: {
+              candidate: e.candidate.candidate,
+              sdpMLineIndex: e.candidate.sdpMLineIndex,
+              sdpMid: e.candidate.sdpMid
+            }
+          });
+        }
+      };
+
+      pc.oniceconnectionstatechange = () => {
+        log(`ICE: ${pc.iceConnectionState}`);
+        if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+          setStatus('Streaming', 'connected');
+          document.getElementById('disconnectBtn').disabled = false;
+        } else if (pc.iceConnectionState === 'failed') {
+          log('ICE connection failed', 'err');
+          setStatus('Failed', 'disconnected');
+        }
+      };
+
+      pc.ontrack = (e) => {
+        log(`Received ${e.track.kind} track!`, 'ok');
+        const video = document.getElementById('remoteVideo');
+        video.srcObject = e.streams[0] || new MediaStream([e.track]);
+        document.getElementById('placeholder').style.display = 'none';
+        video.play().catch(() => {});
+      };
+    }
+
+    async function handleSignal(payload) {
+      if (!payload.signal) return;
+
+      if (payload.signal === 'offer') {
+        // Agent sent us an offer — create answer
+        log(`Received SDP offer from agent (${payload.sdp.length} bytes)`, 'ok');
+        setStatus('Negotiating...', 'connecting');
+
+        createPeerConnection();
+
+        await pc.setRemoteDescription({ type: 'offer', sdp: payload.sdp });
+
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+
+        log(`Sending SDP answer (${answer.sdp.length} bytes)`);
+        sendSignal({ signal: 'answer', sdp: answer.sdp });
+      }
+      else if (payload.signal === 'ice-candidate') {
+        log('Received ICE candidate', 'ice');
+        if (pc && payload.candidate) {
+          await pc.addIceCandidate({
+            candidate: payload.candidate.candidate,
+            sdpMLineIndex: payload.candidate.sdpMLineIndex,
+            sdpMid: payload.candidate.sdpMid
+          });
+        }
+      }
+    }
+  </script>
+</body>
+</html>
