@@ -1,0 +1,26 @@
+#!/bin/bash
+set -e
+
+# Create config directory if it doesn't exist
+mkdir -p /etc/callmor-agent
+
+# Only install default config if none exists (don't overwrite user config on upgrade)
+if [ ! -f /etc/callmor-agent/agent.conf ]; then
+    cp /usr/share/callmor-agent/agent.conf.template /etc/callmor-agent/agent.conf
+    chmod 600 /etc/callmor-agent/agent.conf
+    echo ""
+    echo "================================================"
+    echo " Callmor Agent installed!"
+    echo ""
+    echo " Configure: sudo nano /etc/callmor-agent/agent.conf"
+    echo " Start:     sudo systemctl start callmor-agent"
+    echo " Status:    sudo systemctl status callmor-agent"
+    echo " Logs:      sudo journalctl -u callmor-agent -f"
+    echo "================================================"
+    echo ""
+fi
+
+# Reload systemd
+systemctl daemon-reload
+
+exit 0

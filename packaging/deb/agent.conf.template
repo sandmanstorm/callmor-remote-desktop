@@ -1,0 +1,11 @@
+# Callmor Remote Desktop Agent Configuration
+# Edit these values and restart the service: sudo systemctl restart callmor-agent
+
+# Relay server URL (WebSocket)
+RELAY_URL=wss://relay.callmor.ai
+
+# Machine ID (from the dashboard when you added this machine)
+MACHINE_ID=CHANGE_ME
+
+# Agent token (from the dashboard — shown once when machine was added)
+AGENT_TOKEN=CHANGE_ME

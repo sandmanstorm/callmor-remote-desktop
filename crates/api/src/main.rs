@@ -69,6 +69,8 @@ async fn main() -> Result<()> {
         .route("/sessions", post(routes::sessions::create_session))
         .route("/sessions", get(routes::sessions::list_sessions))
         .route("/sessions/active", get(routes::sessions::list_active_sessions))
+        // Downloads
+        .route("/downloads/agent/linux/deb", get(routes::downloads::download_agent_deb))
         .layer(cors)
         .with_state(state);
 

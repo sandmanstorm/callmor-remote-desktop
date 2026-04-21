@@ -1,0 +1,13 @@
+#!/bin/bash
+set -e
+
+# Stop the service before removal
+if systemctl is-active --quiet callmor-agent; then
+    systemctl stop callmor-agent
+fi
+
+if systemctl is-enabled --quiet callmor-agent 2>/dev/null; then
+    systemctl disable callmor-agent
+fi
+
+exit 0

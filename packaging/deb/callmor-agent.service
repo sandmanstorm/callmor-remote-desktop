@@ -1,0 +1,23 @@
+[Unit]
+Description=Callmor Remote Desktop Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/callmor-agent/agent.conf
+ExecStart=/usr/bin/callmor-agent
+Restart=always
+RestartSec=5
+
+# Run as root for input injection (XTest requires it for some operations)
+# The agent itself drops privileges where possible
+User=root
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=callmor-agent
+
+[Install]
+WantedBy=multi-user.target

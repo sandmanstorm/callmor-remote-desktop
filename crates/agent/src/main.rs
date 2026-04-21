@@ -21,8 +21,36 @@ enum OutgoingSignal {
     IceCandidate { candidate: String, sdp_mline_index: u32 },
 }
 
+/// Load config from /etc/callmor-agent/agent.conf if it exists.
+/// Format: KEY=VALUE lines (like a .env file). Env vars take precedence.
+fn load_config_file() {
+    let config_path = std::path::Path::new("/etc/callmor-agent/agent.conf");
+    if !config_path.exists() {
+        return;
+    }
+    if let Ok(contents) = std::fs::read_to_string(config_path) {
+        for line in contents.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if let Some((key, value)) = line.split_once('=') {
+                let key = key.trim();
+                let value = value.trim().trim_matches('"');
+                // Only set if not already in env (env vars take precedence)
+                if std::env::var(key).is_err() {
+                    // SAFETY: called before any threads are spawned (in main, before tokio runtime)
+                    unsafe { std::env::set_var(key, value) };
+                }
+            }
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Load config: /etc/callmor-agent/agent.conf → .env → env vars
+    load_config_file();
     dotenvy::dotenv().ok();
 
     tracing_subscriber::fmt()
@@ -32,7 +60,7 @@ async fn main() -> Result<()> {
     let relay_url = std::env::var("RELAY_URL").unwrap_or_else(|_| "ws://127.0.0.1:8080".into());
     let machine_id = std::env::var("MACHINE_ID").unwrap_or_else(|_| "agent-linux-1".into());
 
-    info!("Callmor Agent starting");
+    info!("Callmor Agent v{}", env!("CARGO_PKG_VERSION"));
     info!("Relay: {relay_url}, Machine ID: {machine_id}");
 
     gstreamer::init()?;
