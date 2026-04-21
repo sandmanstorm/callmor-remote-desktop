@@ -6,8 +6,8 @@
   <title>Callmor Remote Viewer</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: system-ui, sans-serif; background: #0a0a0a; color: #eee; }
-    .toolbar { background: #1a1a2e; padding: 0.6rem 1rem; display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; border-bottom: 1px solid #333; }
+    body { font-family: system-ui, sans-serif; background: #0a0a0a; color: #eee; overflow: hidden; }
+    .toolbar { background: #1a1a2e; padding: 0.6rem 1rem; display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; border-bottom: 1px solid #333; z-index: 10; position: relative; }
     label { display: flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; }
     input, button { padding: 0.35rem 0.5rem; border-radius: 4px; border: 1px solid #444; background: #222; color: #eee; font-size: 0.85rem; }
     button { cursor: pointer; background: #2563eb; border-color: #2563eb; }
@@ -19,14 +19,12 @@
     .status-disconnected { background: #7f1d1d; color: #fca5a5; }
     .status-connecting { background: #78350f; color: #fcd34d; }
     .status-connected { background: #14532d; color: #86efac; }
-    .viewer { display: flex; justify-content: center; align-items: center; min-height: calc(100vh - 50px); background: #000; }
-    video { max-width: 100%; max-height: calc(100vh - 50px); background: #111; }
-    .placeholder { color: #555; font-size: 1.2rem; }
-    #log { position: fixed; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,0.9); border-top: 1px solid #333; padding: 0.5rem; max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.75rem; }
-    .sys { color: #facc15; }
-    .err { color: #f87171; }
-    .ok { color: #4ade80; }
-    .ice { color: #a78bfa; }
+    .viewer { display: flex; justify-content: center; align-items: center; height: calc(100vh - 44px); background: #000; position: relative; }
+    video { max-width: 100%; max-height: 100%; background: #111; cursor: default; }
+    .placeholder { color: #555; font-size: 1.2rem; position: absolute; }
+    #log { position: fixed; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,0.92); border-top: 1px solid #333; padding: 0.5rem; max-height: 150px; overflow-y: auto; font-family: monospace; font-size: 0.7rem; display: none; z-index: 20; }
+    #log.visible { display: block; }
+    .sys { color: #facc15; } .err { color: #f87171; } .ok { color: #4ade80; } .ice { color: #a78bfa; }
   </style>
 </head>
 <body>
@@ -36,10 +34,11 @@
     <button id="connectBtn" onclick="connect()">Connect</button>
     <button id="disconnectBtn" onclick="disconnect()" disabled class="btn-red">Disconnect</button>
     <span id="statusBadge" class="status status-disconnected">Disconnected</span>
+    <button onclick="document.getElementById('log').classList.toggle('visible')" style="margin-left:auto;background:#333;border-color:#555;">Log</button>
   </div>
 
   <div class="viewer">
-    <video id="remoteVideo" autoplay playsinline></video>
+    <video id="remoteVideo" autoplay playsinline tabindex="0"></video>
     <div id="placeholder" class="placeholder">Click "Connect" to view remote desktop</div>
   </div>
 
@@ -48,10 +47,11 @@
   <script>
     let ws = null;
     let pc = null;
+    let inputChannel = null;
+    let remoteScreenWidth = 1920;
+    let remoteScreenHeight = 1080;
 
-    const ICE_SERVERS = [
-      { urls: 'stun:stun.l.google.com:19302' }
-    ];
+    const ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }];
 
     function log(text, cls = 'sys') {
       const el = document.getElementById('log');
@@ -71,8 +71,73 @@
       ws.send(JSON.stringify({ type: 'relay', payload }));
     }
 
-    // --- Flow: Browser connects → sends "ready" → Agent sends offer → Browser answers ---
+    function sendInput(event) {
+      if (inputChannel && inputChannel.readyState === 'open') {
+        inputChannel.send(JSON.stringify(event));
+      }
+    }
 
+    // --- Coordinate mapping: video element → remote screen ---
+    function videoToRemote(clientX, clientY) {
+      const video = document.getElementById('remoteVideo');
+      const rect = video.getBoundingClientRect();
+
+      // Position within the video element (0..1)
+      const relX = (clientX - rect.left) / rect.width;
+      const relY = (clientY - rect.top) / rect.height;
+
+      // Map to remote screen coordinates
+      return {
+        x: Math.round(relX * remoteScreenWidth),
+        y: Math.round(relY * remoteScreenHeight)
+      };
+    }
+
+    // --- Input event handlers ---
+    function setupInputCapture() {
+      const video = document.getElementById('remoteVideo');
+
+      video.addEventListener('mousemove', (e) => {
+        const { x, y } = videoToRemote(e.clientX, e.clientY);
+        sendInput({ type: 'mousemove', x, y });
+      });
+
+      video.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        video.focus();
+        const { x, y } = videoToRemote(e.clientX, e.clientY);
+        sendInput({ type: 'mousedown', x, y, button: e.button });
+      });
+
+      video.addEventListener('mouseup', (e) => {
+        e.preventDefault();
+        const { x, y } = videoToRemote(e.clientX, e.clientY);
+        sendInput({ type: 'mouseup', x, y, button: e.button });
+      });
+
+      video.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const { x, y } = videoToRemote(e.clientX, e.clientY);
+        sendInput({ type: 'scroll', x, y, deltaX: e.deltaX, deltaY: e.deltaY });
+      }, { passive: false });
+
+      video.addEventListener('contextmenu', (e) => e.preventDefault());
+
+      // Keyboard: capture when video is focused
+      video.addEventListener('keydown', (e) => {
+        e.preventDefault();
+        sendInput({ type: 'keydown', code: e.code, key: e.key });
+      });
+
+      video.addEventListener('keyup', (e) => {
+        e.preventDefault();
+        sendInput({ type: 'keyup', code: e.code, key: e.key });
+      });
+
+      log('Input capture attached to video element', 'ok');
+    }
+
+    // --- WebRTC ---
     async function connect() {
       const url = document.getElementById('url').value;
       const machineId = document.getElementById('machineId').value;
@@ -86,8 +151,6 @@
       ws.onopen = () => {
         ws.send(JSON.stringify({ type: 'hello', role: 'browser', machine_id: machineId }));
         log(`Connected to relay as browser for "${machineId}"`, 'ok');
-
-        // Tell the agent we're ready — agent will create the offer
         setTimeout(() => {
           sendSignal({ signal: 'ready' });
           log('Sent "ready" to agent, waiting for offer...', 'ok');
@@ -103,19 +166,13 @@
         }
       };
 
-      ws.onclose = () => {
-        log('Relay disconnected');
-        cleanup();
-      };
-
-      ws.onerror = () => {
-        log('Relay connection error', 'err');
-        cleanup();
-      };
+      ws.onclose = () => { log('Relay disconnected'); cleanup(); };
+      ws.onerror = () => { log('Relay error', 'err'); cleanup(); };
     }
 
     function cleanup() {
       if (pc) { pc.close(); pc = null; }
+      inputChannel = null;
       document.getElementById('connectBtn').disabled = false;
       document.getElementById('disconnectBtn').disabled = true;
       document.getElementById('remoteVideo').srcObject = null;
@@ -123,17 +180,37 @@
       setStatus('Disconnected', 'disconnected');
     }
 
-    function disconnect() {
-      if (ws) ws.close();
-      cleanup();
-    }
+    function disconnect() { if (ws) ws.close(); cleanup(); }
 
     function createPeerConnection() {
       pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
 
+      // Receive data channel created by the agent
+      pc.ondatachannel = (e) => {
+        const channel = e.channel;
+        log(`Received data channel: "${channel.label}"`, 'ok');
+        if (channel.label === 'input') {
+          inputChannel = channel;
+          inputChannel.onopen = () => {
+            log('Input data channel open', 'ok');
+            setupInputCapture();
+          };
+          inputChannel.onmessage = (ev) => {
+            try {
+              const msg = JSON.parse(ev.data);
+              if (msg.type === 'screen-size') {
+                remoteScreenWidth = msg.width;
+                remoteScreenHeight = msg.height;
+                log(`Remote screen: ${msg.width}x${msg.height}`, 'ok');
+              }
+            } catch {}
+          };
+          inputChannel.onclose = () => log('Input data channel closed');
+        }
+      };
+
       pc.onicecandidate = (e) => {
         if (e.candidate) {
-          log('Sending ICE candidate', 'ice');
           sendSignal({
             signal: 'ice-candidate',
             candidate: {
@@ -157,11 +234,13 @@
       };
 
       pc.ontrack = (e) => {
-        log(`Received ${e.track.kind} track!`, 'ok');
+        log(`Received ${e.track.kind} track`, 'ok');
         const video = document.getElementById('remoteVideo');
         video.srcObject = e.streams[0] || new MediaStream([e.track]);
         document.getElementById('placeholder').style.display = 'none';
         video.play().catch(() => {});
+        // Focus video for keyboard capture
+        video.focus();
       };
     }
 
@@ -169,22 +248,18 @@
       if (!payload.signal) return;
 
       if (payload.signal === 'offer') {
-        // Agent sent us an offer — create answer
         log(`Received SDP offer from agent (${payload.sdp.length} bytes)`, 'ok');
         setStatus('Negotiating...', 'connecting');
 
         createPeerConnection();
-
         await pc.setRemoteDescription({ type: 'offer', sdp: payload.sdp });
 
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
-
         log(`Sending SDP answer (${answer.sdp.length} bytes)`);
         sendSignal({ signal: 'answer', sdp: answer.sdp });
       }
       else if (payload.signal === 'ice-candidate') {
-        log('Received ICE candidate', 'ice');
         if (pc && payload.candidate) {
           await pc.addIceCandidate({
             candidate: payload.candidate.candidate,

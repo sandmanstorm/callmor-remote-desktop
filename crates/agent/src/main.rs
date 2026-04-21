@@ -1,9 +1,13 @@
+mod input;
+
 use anyhow::{Context, Result};
 use callmor_shared::protocol::{Role, SignalMessage};
 use futures_util::{SinkExt, StreamExt};
+use gstreamer::glib;
 use gstreamer::prelude::*;
 use gstreamer_sdp as gst_sdp;
 use gstreamer_webrtc as gst_webrtc;
+use input::{InputEvent, InputInjector};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
@@ -270,9 +274,53 @@ fn create_pipeline(
         None
     });
 
-    // Start pipeline — this triggers on-negotiation-needed
+    // Start pipeline — this triggers on-negotiation-needed which creates the offer
     pipeline.set_state(gstreamer::State::Playing)?;
     info!("GStreamer pipeline started: ximagesrc → x264enc → webrtcbin");
+
+    // Create data channel for input AFTER pipeline is playing.
+    // This triggers a second on-negotiation-needed which is fine — the offer
+    // will include the data channel. The browser receives it via ondatachannel.
+    let dc_init = gstreamer::Structure::builder("application/x-datachannel")
+        .field("ordered", true)
+        .build();
+    let input_dc: gst_webrtc::WebRTCDataChannel = webrtcbin
+        .emit_by_name_with_values(
+            "create-data-channel",
+            &["input".into(), dc_init.to_value()],
+        )
+        .context("create-data-channel returned None")?
+        .get::<gst_webrtc::WebRTCDataChannel>()
+        .context("Failed to get WebRTCDataChannel from return value")?;
+    info!("Created 'input' data channel");
+
+    // Set up input injection on the data channel
+    let injector = Arc::new(InputInjector::new()?);
+
+    let inj = injector.clone();
+    input_dc.connect("on-message-string", false, move |args| {
+        let msg = args[1].get::<String>().expect("message must be string");
+        match serde_json::from_str::<InputEvent>(&msg) {
+            Ok(event) => {
+                if let Err(e) = inj.handle_event(&event) {
+                    warn!("Input injection error: {e}");
+                }
+            }
+            Err(e) => {
+                warn!("Failed to parse input event: {e}");
+            }
+        }
+        None
+    });
+
+    let (w, h) = injector.screen_size();
+    let dc_ref = input_dc.clone();
+    input_dc.connect("on-open", false, move |_args| {
+        let size_msg = serde_json::json!({"type":"screen-size","width":w,"height":h}).to_string();
+        dc_ref.send_string(Some(&size_msg));
+        info!("Input data channel open, sent screen size {w}x{h}");
+        None
+    });
 
     // Monitor bus
     let bus = pipeline.bus().context("No bus on pipeline")?;
