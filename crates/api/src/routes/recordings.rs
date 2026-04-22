@@ -40,7 +40,7 @@ pub async fn agent_get_config(
 
     Ok(Json(AgentConfigResponse {
         recording_enabled,
-        api_url: state.public_url.clone(),
+        api_url: state.api_url.clone(),
     }))
 }
 

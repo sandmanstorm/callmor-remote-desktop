@@ -100,7 +100,7 @@ pub async fn register(
         pin: row.2,
         agent_token: row.3,
         relay_url,
-        api_url: state.public_url.clone(),
+        api_url: state.api_url.clone(),
     }))
 }
 

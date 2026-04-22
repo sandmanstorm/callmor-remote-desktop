@@ -42,6 +42,9 @@ async fn main() -> Result<()> {
     info!("Connected to PostgreSQL");
 
     let public_url = std::env::var("PUBLIC_WEB_URL").unwrap_or_else(|_| "https://remote.callmor.ai".into());
+    // Agents POST heartbeats and config fetches here — this must point at the
+    // API host (api.callmor.ai), NOT the web host (remote.callmor.ai).
+    let api_url = std::env::var("PUBLIC_API_URL").unwrap_or_else(|_| "https://api.callmor.ai".into());
 
     // Check SMTP config once at startup (for logging only; we load fresh from DB on each send)
     if email::EmailConfig::load(&pool).await.is_some() {
@@ -58,6 +61,7 @@ async fn main() -> Result<()> {
         jwt: jwt::JwtKeys::from_secret(jwt_secret.as_bytes()),
         storage,
         public_url,
+        api_url,
     };
 
     // Background sweep: mark stale machines offline + close abandoned sessions + purge expired refresh tokens

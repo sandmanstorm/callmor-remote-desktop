@@ -91,7 +91,7 @@ pub async fn enroll(
 
     let relay_url = std::env::var("PUBLIC_RELAY_URL")
         .unwrap_or_else(|_| "wss://relay.callmor.ai".into());
-    let api_url = state.public_url.clone();
+    let api_url = state.api_url.clone();
 
     Ok(Json(EnrollResponse {
         machine_id,
