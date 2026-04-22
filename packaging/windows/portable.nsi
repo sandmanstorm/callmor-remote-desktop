@@ -18,7 +18,7 @@
     !error "Define DLLDIR=/path/containing/mingw-runtime-dlls"
 !endif
 
-Name "Callmor Remote Desktop ${VERSION}"
+Name "Callmor Remote Desktop"
 !ifndef OUTPUT
     !define OUTPUT "callmor-portable-${VERSION}.exe"
 !endif
@@ -26,7 +26,13 @@ OutFile "${OUTPUT}"
 InstallDir "$LOCALAPPDATA\Callmor"
 RequestExecutionLevel user      ; no admin prompt
 Unicode true
-SilentInstall silent            ; fully silent — no UI at all
+; Show a small progress window during extraction — without it the user
+; gets zero feedback between double-click and the GUI appearing (~1s).
+; Auto-close so it feels like "clicking a .exe and it opens".
+AutoCloseWindow true
+ShowInstDetails hide
+XPStyle on
+BrandingText " "
 SetCompress off
 
 ; Metadata for Explorer properties / SmartScreen heuristics

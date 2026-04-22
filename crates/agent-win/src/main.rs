@@ -54,23 +54,97 @@ fn parse_mode() -> Mode {
     Mode::Portable
 }
 
-fn main() -> Result<()> {
-    // Log to %LOCALAPPDATA%\Callmor\agent.log in portable mode,
-    // ProgramData\Callmor\agent.log in service mode.
-    init_tracing();
+fn main() {
+    let mode = parse_mode();
+    init_tracing(&mode);
 
-    match parse_mode() {
+    let result = match mode {
         Mode::Portable => portable::run(),
         Mode::InstallService => service_install::install(),
         Mode::UninstallService => service_install::uninstall(),
         Mode::ServiceMain => run_service_headless(),
+    };
+
+    if let Err(e) = result {
+        let msg = format!("Callmor failed to start:\n\n{e:#}\n\nSee %LOCALAPPDATA%\\Callmor\\agent.log for details.");
+        error!("Fatal: {e:#}");
+        show_fatal_dialog(&msg);
+        std::process::exit(1);
     }
 }
 
-fn init_tracing() {
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
-        .init();
+/// Tracing subscriber that writes both to stderr (for service/dev mode) and
+/// to a log file (crucial for portable mode where windows_subsystem = windows
+/// means there is no console). Without the file, any early failure — failed
+/// DLL load, eframe OpenGL init error, anything — is completely silent.
+fn init_tracing(mode: &Mode) {
+    use tracing_subscriber::fmt;
+
+    let log_path = match mode {
+        Mode::Portable | Mode::InstallService | Mode::UninstallService => {
+            std::env::var("LOCALAPPDATA")
+                .ok()
+                .map(|p| std::path::PathBuf::from(p).join("Callmor").join("agent.log"))
+        }
+        Mode::ServiceMain => Some(std::path::PathBuf::from(
+            r"C:\ProgramData\Callmor\agent.log",
+        )),
+    };
+
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into());
+
+    if let Some(path) = log_path {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        // Open append-mode; truncate would lose crash info between launches.
+        match std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+        {
+            Ok(f) => {
+                fmt()
+                    .with_env_filter(env_filter)
+                    .with_writer(std::sync::Mutex::new(f))
+                    .with_ansi(false)
+                    .init();
+                tracing::info!("--- Callmor agent starting ---");
+                return;
+            }
+            Err(_) => {
+                // Fall through to stderr-only subscriber
+            }
+        }
+    }
+
+    fmt().with_env_filter(env_filter).init();
+}
+
+/// Show an error dialog so the user at least sees *something* when the agent
+/// can't start. Without this, portable mode fails silently (no console).
+#[cfg(windows)]
+fn show_fatal_dialog(message: &str) {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+    use windows::core::PCWSTR;
+    use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
+
+    let title: Vec<u16> = "Callmor — Startup Error\0".encode_utf16().collect();
+    let body: Vec<u16> = OsStr::new(message).encode_wide().chain(Some(0)).collect();
+    unsafe {
+        MessageBoxW(
+            None,
+            PCWSTR(body.as_ptr()),
+            PCWSTR(title.as_ptr()),
+            MB_OK | MB_ICONERROR,
+        );
+    }
+}
+
+#[cfg(not(windows))]
+fn show_fatal_dialog(message: &str) {
+    eprintln!("{message}");
 }
 
 /// Run the agent as a Windows service (headless). Config path defaults to
