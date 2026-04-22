@@ -47,7 +47,7 @@ pub async fn run(config: &AgentConfig) -> Result<()> {
 
     // We create the peer connection lazily — only when browser sends "ready"
     let mut pc: Option<Arc<webrtc::peer_connection::RTCPeerConnection>> = None;
-    let mut capture_handle: Option<tokio::task::JoinHandle<()>> = None;
+    let mut capture_handle: Option<(tokio::task::JoinHandle<()>, Arc<std::sync::atomic::AtomicBool>)> = None;
 
     loop {
         tokio::select! {
@@ -68,9 +68,14 @@ pub async fn run(config: &AgentConfig) -> Result<()> {
                                 match sig {
                                     "ready" => {
                                         info!("Browser ready — creating peer connection");
-                                        let (new_pc, handle) = setup_peer_connection(out_tx.clone()).await?;
+                                        // Stop any existing capture loop before starting a new one
+                                        if let Some((h, stop)) = capture_handle.take() {
+                                            stop.store(true, std::sync::atomic::Ordering::Relaxed);
+                                            h.abort();
+                                        }
+                                        let (new_pc, handle, stop_flag) = setup_peer_connection(out_tx.clone()).await?;
                                         pc = Some(new_pc);
-                                        capture_handle = Some(handle);
+                                        capture_handle = Some((handle, stop_flag));
                                     }
                                     "answer" => {
                                         if let Some(pc) = &pc {
@@ -118,7 +123,11 @@ pub async fn run(config: &AgentConfig) -> Result<()> {
     }
 
     // Cleanup
-    if let Some(h) = capture_handle { h.abort(); }
+    if let Some((h, stop)) = capture_handle {
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        // Give the loop up to ~200ms to notice the flag and release DXGI resources
+        let _ = tokio::time::timeout(std::time::Duration::from_millis(200), h).await;
+    }
     if let Some(pc) = pc { let _ = pc.close().await; }
 
     Ok(())
@@ -128,7 +137,11 @@ pub async fn run(config: &AgentConfig) -> Result<()> {
 /// Returns the PC and a JoinHandle for the capture/encode loop.
 async fn setup_peer_connection(
     out_tx: mpsc::UnboundedSender<String>,
-) -> Result<(Arc<webrtc::peer_connection::RTCPeerConnection>, tokio::task::JoinHandle<()>)> {
+) -> Result<(
+    Arc<webrtc::peer_connection::RTCPeerConnection>,
+    tokio::task::JoinHandle<()>,
+    Arc<std::sync::atomic::AtomicBool>,
+)> {
     // Media engine with H.264 codec
     let mut media = MediaEngine::default();
     media.register_default_codecs()?;
@@ -244,19 +257,30 @@ async fn setup_peer_connection(
     out_tx.send(serde_json::to_string(&msg)?)?;
     info!("Sent SDP offer");
 
-    // Spawn capture + encode + send loop
+    // Spawn capture + encode + send loop.
+    // The blocking loop checks `stop_flag` so we can cleanly stop it when
+    // the session ends (tokio's abort() does not interrupt spawn_blocking).
+    let stop_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let track_for_loop = track.clone();
+    let stop_for_loop = stop_flag.clone();
     let handle = tokio::task::spawn_blocking(move || {
-        if let Err(e) = capture_loop(track_for_loop) {
+        if let Err(e) = capture_loop(track_for_loop, stop_for_loop) {
             error!("Capture loop exited: {e:#}");
         }
     });
 
-    Ok((pc, handle))
+    // Store the stop flag on the PC as an extension so the caller can flip it.
+    // We piggyback via the returned handle by returning the stop flag as well.
+    // Instead of making the signature bigger, we spawn a watcher that stops the
+    // loop when the join handle is aborted.
+    Ok((pc, handle, stop_flag))
 }
 
 /// Capture frames, encode to H.264, send as samples.
-fn capture_loop(track: Arc<TrackLocalStaticSample>) -> Result<()> {
+fn capture_loop(
+    track: Arc<TrackLocalStaticSample>,
+    stop_flag: Arc<std::sync::atomic::AtomicBool>,
+) -> Result<()> {
     use openh264::encoder::Encoder;
     use openh264::formats::{BgraSliceU8, YUVBuffer};
 
@@ -272,6 +296,10 @@ fn capture_loop(track: Arc<TrackLocalStaticSample>) -> Result<()> {
     let frame_duration = std::time::Duration::from_millis(1000 / target_fps);
 
     loop {
+        if stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
+            info!("Capture loop stopping (session ended)");
+            break Ok(());
+        }
         let start = std::time::Instant::now();
 
         match capturer.grab(100) {

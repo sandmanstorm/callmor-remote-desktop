@@ -32,11 +32,11 @@ async fn main() -> Result<()> {
         .init();
 
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    let jwt_secret = std::env::var("JWT_SECRET").unwrap_or_else(|_| {
-        // Fall back to a derived secret from the database password for dev
-        let db_pass = std::env::var("POSTGRES_PASSWORD").unwrap_or_else(|_| "dev-secret".into());
-        format!("callmor-jwt-{db_pass}")
-    });
+    let jwt_secret = std::env::var("JWT_SECRET")
+        .expect("JWT_SECRET must be set. Generate with: openssl rand -hex 32");
+    if jwt_secret.len() < 32 {
+        panic!("JWT_SECRET must be at least 32 characters");
+    }
 
     let pool = callmor_shared::db::create_pool(&database_url).await?;
     info!("Connected to PostgreSQL");
@@ -60,7 +60,7 @@ async fn main() -> Result<()> {
         public_url,
     };
 
-    // Background sweep: mark stale machines offline every 30s
+    // Background sweep: mark stale machines offline + close abandoned sessions + purge expired refresh tokens
     {
         let pool = pool.clone();
         tokio::spawn(async move {
@@ -68,6 +68,18 @@ async fn main() -> Result<()> {
             loop {
                 interval.tick().await;
                 routes::agent::sweep_stale(&pool).await;
+                // Close sessions whose viewer is long gone (no updates in 5 minutes and no
+                // corresponding active machine). Session token itself expires in 2 min.
+                let _ = sqlx::query(
+                    "UPDATE sessions SET ended_at = now()
+                     WHERE ended_at IS NULL AND started_at < now() - interval '5 minutes'",
+                )
+                .execute(&pool)
+                .await;
+                // Cleanup old refresh tokens (idx_refresh_tokens_expires exists)
+                let _ = sqlx::query("DELETE FROM refresh_tokens WHERE expires_at < now()")
+                    .execute(&pool)
+                    .await;
             }
         });
     }
@@ -122,6 +134,7 @@ async fn main() -> Result<()> {
         // Agent (agent-token auth, not user JWT)
         .route("/agent/heartbeat", post(routes::agent::heartbeat))
         .route("/agent/config", get(routes::recordings::agent_get_config))
+        .route("/agent/session/end", post(routes::recordings::agent_end_session))
         .route("/agent/recordings/upload", post(routes::recordings::agent_upload_recording))
         // Recordings (user endpoints)
         .route("/recordings", get(routes::recordings::list_recordings))

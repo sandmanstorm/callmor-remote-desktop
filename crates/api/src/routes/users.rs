@@ -22,6 +22,9 @@ pub async fn list_users(
     State(state): State<AppState>,
     AuthUser(claims): AuthUser,
 ) -> Result<Json<Vec<UserListItem>>, (StatusCode, String)> {
+    if !["owner", "admin"].contains(&claims.role.as_str()) {
+        return Err((StatusCode::FORBIDDEN, "Requires admin or owner".into()));
+    }
     let users: Vec<UserListItem> = sqlx::query_as(
         "SELECT id, email, display_name, role, created_at FROM users WHERE tenant_id = $1 ORDER BY created_at",
     )

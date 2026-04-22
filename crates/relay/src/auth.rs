@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use jsonwebtoken::{decode, DecodingKey, Validation};
+use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use serde::Deserialize;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -46,7 +46,10 @@ pub fn validate_session_token(
     token: &str,
     claimed_machine_id: &str,
 ) -> Result<Uuid> {
-    let data = decode::<SessionClaims>(token, key, &Validation::default())
+    let mut validation = Validation::new(Algorithm::HS256);
+    validation.validate_exp = true;
+    validation.leeway = 0;
+    let data = decode::<SessionClaims>(token, key, &validation)
         .context("Invalid session token")?;
 
     if data.claims.token_type != "session" {

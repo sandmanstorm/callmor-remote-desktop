@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { authApi } from '../lib/api';
+import { authApi, errMsg } from '../lib/api';
 import { useAuth } from '../lib/auth';
 
 export default function Login() {
@@ -21,7 +21,7 @@ export default function Login() {
       setAuth(data.user, data.access_token, data.refresh_token);
       navigate('/');
     } catch (err: any) {
-      setError(err.response?.data || 'Login failed');
+      setError(errMsg(err, 'Login failed'));
     } finally {
       setLoading(false);
     }

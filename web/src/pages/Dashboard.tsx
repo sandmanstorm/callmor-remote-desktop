@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
-import { machinesApi, sessionsApi, machineAccessApi, usersApi } from '../lib/api';
+import { machinesApi, sessionsApi, machineAccessApi, usersApi, errMsg } from '../lib/api';
 import type { Machine, CreateMachineResponse, AccessUser, User } from '../lib/api';
 import { Monitor, Plus, Trash2, LogOut, Copy, Wifi, WifiOff, Download, Users, Eye, Settings, Lock, Globe, X, Shield, Activity, Film } from 'lucide-react';
 
@@ -43,7 +43,7 @@ export default function Dashboard() {
       setNewMachineResult(data);
       fetchMachines();
     } catch (err: any) {
-      alert(err.response?.data || 'Failed to add machine');
+      alert(errMsg(err, 'Failed to add machine'));
     }
   };
 
@@ -65,7 +65,7 @@ export default function Dashboard() {
       });
       window.open(`/viewer-test.html?${params.toString()}`, '_blank');
     } catch (err: any) {
-      alert(err.response?.data || 'Failed to start session');
+      alert(errMsg(err, 'Failed to start session'));
     }
   };
 

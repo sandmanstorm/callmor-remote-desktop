@@ -288,22 +288,55 @@ async fn run_session(relay_url: &str, machine_id: &str, agent_token: &str) -> Re
         }
     }
 
-    // Send EOS to pipeline to finalize the recording MP4, then null it
+    // Finalize recording: send EOS and wait for it to propagate through mp4mux
+    // (which writes the moov atom before the file is playable).
     if let Some(pipe) = pipeline.lock().await.take() {
         pipe.send_event(gstreamer::event::Eos::new());
-        // Wait briefly for EOS to propagate through mp4mux
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+        // Wait for EOS on the bus with a timeout, up to 10s
+        if let Some(bus) = pipe.bus() {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            while std::time::Instant::now() < deadline {
+                if let Some(msg) = bus.timed_pop(gstreamer::ClockTime::from_mseconds(500)) {
+                    use gstreamer::MessageView;
+                    match msg.view() {
+                        MessageView::Eos(_) => {
+                            info!("Pipeline reached EOS, recording finalized");
+                            break;
+                        }
+                        MessageView::Error(e) => {
+                            warn!("Pipeline error during EOS: {}", e.error());
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
         pipe.set_state(gstreamer::State::Null)?;
     }
 
-    // Upload recording if we have one
+    // Upload recording + mark session ended
     if let Some(session) = current_session.lock().await.take() {
+        mark_session_ended(&api_url_owned, &agent_token_owned, &session.session_id).await;
         if session.recording_path.is_some() {
             upload_recording(&api_url_owned, &agent_token_owned, &session).await;
         }
     }
 
     Ok(())
+}
+
+/// Notify the API that a session has ended.
+async fn mark_session_ended(api_url: &str, agent_token: &str, session_id: &str) {
+    let client = reqwest::Client::new();
+    let _ = client
+        .post(format!("{api_url}/agent/session/end?session_id={session_id}"))
+        .header("X-Agent-Token", agent_token)
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await;
 }
 
 fn create_pipeline(
@@ -444,9 +477,10 @@ fn create_pipeline(
     // Set up input injection on the data channel
     let injector = Arc::new(InputInjector::new()?);
 
-    // Permission state: defaults to full_control. Browser can downgrade to view_only.
-    // Use atomic for lock-free updates.
-    let permission_view_only = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    // Permission state: defaults to view_only (deny input) until the browser
+    // explicitly tells us it has full_control permission. This prevents input
+    // injection before the permission handshake completes.
+    let permission_view_only = Arc::new(std::sync::atomic::AtomicBool::new(true));
 
     let inj = injector.clone();
     let perm_check = permission_view_only.clone();

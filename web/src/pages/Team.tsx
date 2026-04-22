@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
-import { usersApi, invitationsApi } from '../lib/api';
+import { usersApi, invitationsApi, errMsg } from '../lib/api';
 import type { User, Invitation, CreateInvitationResponse } from '../lib/api';
 import { Monitor, Users, Mail, Trash2, LogOut, Copy, ArrowLeft, UserPlus, Crown, Shield } from 'lucide-react';
 
@@ -43,7 +43,7 @@ export default function Team() {
       setInviteResult(data);
       fetchData();
     } catch (err: any) {
-      alert(err.response?.data || 'Failed to create invitation');
+      alert(errMsg(err, 'Failed to create invitation'));
     }
   };
 
@@ -53,7 +53,7 @@ export default function Team() {
       await usersApi.update(id, newRole);
       fetchData();
     } catch (err: any) {
-      alert(err.response?.data || 'Failed to change role');
+      alert(errMsg(err, 'Failed to change role'));
     }
   };
 
@@ -63,7 +63,7 @@ export default function Team() {
       await usersApi.delete(id);
       fetchData();
     } catch (err: any) {
-      alert(err.response?.data || 'Failed to remove user');
+      alert(errMsg(err, 'Failed to remove user'));
     }
   };
 

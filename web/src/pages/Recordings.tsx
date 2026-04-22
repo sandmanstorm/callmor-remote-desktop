@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
-import api, { recordingsApi, tenantSettingsApi } from '../lib/api';
+import api, { recordingsApi, tenantSettingsApi, errMsg } from '../lib/api';
 import type { Recording } from '../lib/api';
 import { Monitor, LogOut, ArrowLeft, Film, Play, Trash2, X, Video, VideoOff } from 'lucide-react';
 
@@ -48,6 +48,13 @@ export default function Recordings() {
 
   useEffect(() => { load(); }, []);
 
+  // Revoke blob URL when component unmounts or URL changes (prevents leak)
+  useEffect(() => {
+    return () => {
+      if (playbackUrl) URL.revokeObjectURL(playbackUrl);
+    };
+  }, [playbackUrl]);
+
   const handleDelete = async (r: Recording) => {
     if (!confirm(`Delete recording of "${r.machine_name}" from ${new Date(r.created_at).toLocaleString()}?`)) return;
     await recordingsApi.delete(r.id);
@@ -55,15 +62,16 @@ export default function Recordings() {
   };
 
   const handlePlay = async (r: Recording) => {
-    setPlaying(r);
+    // Revoke any previous blob URL before starting a new playback
+    if (playbackUrl) URL.revokeObjectURL(playbackUrl);
     setPlaybackUrl(null);
+    setPlaying(r);
     try {
-      // Fetch with auth header, then create a blob URL the <video> can use
       const resp = await api.get(`/recordings/${r.id}/playback`, { responseType: 'blob' });
       const url = URL.createObjectURL(resp.data as Blob);
       setPlaybackUrl(url);
     } catch (err: any) {
-      alert(err.response?.data || 'Failed to load recording');
+      alert(errMsg(err, 'Failed to load recording'));
       setPlaying(null);
     }
   };
@@ -81,7 +89,7 @@ export default function Recordings() {
       await tenantSettingsApi.update({ recording_enabled: !recordingEnabled });
       setRecordingEnabled(!recordingEnabled);
     } catch (err: any) {
-      alert(err.response?.data || 'Failed');
+      alert(errMsg(err, 'Failed'));
     } finally {
       setToggling(false);
     }

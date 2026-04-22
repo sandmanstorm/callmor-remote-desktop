@@ -56,6 +56,25 @@ pub struct UploadParams {
     pub duration_ms: Option<i64>,
 }
 
+/// Agent calls this when a session ends (WebSocket disconnect, etc.)
+pub async fn agent_end_session(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(params): Query<UploadParams>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let (machine_id, _tenant_id) = crate::routes::agent::validate_agent_token(&state, &headers).await?;
+    sqlx::query(
+        "UPDATE sessions SET ended_at = now()
+         WHERE id = $1 AND machine_id = $2 AND ended_at IS NULL",
+    )
+    .bind(params.session_id)
+    .bind(machine_id)
+    .execute(&state.db)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 pub async fn agent_upload_recording(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -63,6 +82,12 @@ pub async fn agent_upload_recording(
     body: axum::body::Bytes,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let (machine_id, tenant_id) = crate::routes::agent::validate_agent_token(&state, &headers).await?;
+
+    // Reject if body is too large (prevent OOM)
+    const MAX_UPLOAD: usize = 2 * 1024 * 1024 * 1024; // 2 GB
+    if body.len() > MAX_UPLOAD {
+        return Err((StatusCode::PAYLOAD_TOO_LARGE, "Recording too large".into()));
+    }
 
     // Verify the session belongs to this machine
     let session_valid: bool = sqlx::query_scalar(
@@ -82,17 +107,25 @@ pub async fn agent_upload_recording(
     let size_bytes = body.len() as i64;
     let object_key = format!("{}/{}.mp4", tenant_id, params.session_id);
 
-    state
-        .storage
-        .put_recording(&object_key, body.to_vec(), "video/mp4")
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Upload: {e:#}")))?;
+    // Claim the DB row FIRST with a strict uniqueness check. This fails fast if
+    // a recording already exists for this session, preventing MinIO overwrite.
+    let existing: Option<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM recordings WHERE session_id = $1",
+    )
+    .bind(params.session_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
-    // Record metadata in DB
+    if existing.is_some() {
+        return Err((StatusCode::CONFLICT, "Recording already exists for this session".into()));
+    }
+
+    // Insert DB row first (reserves the slot), then upload to S3, then we're done.
+    // If S3 upload fails we delete the reservation.
     let id: Uuid = sqlx::query_scalar(
         "INSERT INTO recordings (tenant_id, session_id, machine_id, object_key, size_bytes, duration_ms, content_type)
          VALUES ($1, $2, $3, $4, $5, $6, 'video/mp4')
-         ON CONFLICT DO NOTHING
          RETURNING id",
     )
     .bind(tenant_id)
@@ -104,6 +137,13 @@ pub async fn agent_upload_recording(
     .fetch_one(&state.db)
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+
+    if let Err(e) = state.storage.put_recording(&object_key, body.to_vec(), "video/mp4").await {
+        // Roll back the reservation
+        let _ = sqlx::query("DELETE FROM recordings WHERE id = $1")
+            .bind(id).execute(&state.db).await;
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Upload: {e:#}")));
+    }
 
     crate::audit::log(
         &state.db,

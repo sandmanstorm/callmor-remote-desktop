@@ -21,6 +21,7 @@ PG_PASS=$(gen_pass)
 REDIS_PASS=$(gen_pass)
 MINIO_PASS=$(gen_pass)
 TURN_SECRET=$(gen_pass)
+JWT_SECRET=$(openssl rand -hex 32)
 
 # Generate JWT RS256 keypair
 mkdir -p "$KEYS_DIR"
@@ -49,9 +50,8 @@ MINIO_ENDPOINT=http://127.0.0.1:9000
 TURN_SECRET=${TURN_SECRET}
 TURN_REALM=callmor.ai
 
-# JWT (RS256 keypair paths)
-JWT_PRIVATE_KEY_PATH=./keys/jwt_private.pem
-JWT_PUBLIC_KEY_PATH=./keys/jwt_public.pem
+# JWT signing secret (HS256)
+JWT_SECRET=${JWT_SECRET}
 
 # Server ports
 RELAY_PORT=8080

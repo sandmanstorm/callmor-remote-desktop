@@ -27,7 +27,8 @@ pub struct CreateSessionResponse {
 }
 
 fn default_permission() -> String {
-    "full_control".into()
+    // Safer default: clients must explicitly opt into full_control.
+    "view_only".into()
 }
 
 pub async fn create_session(
@@ -132,12 +133,17 @@ pub async fn list_sessions(
     State(state): State<AppState>,
     AuthUser(claims): AuthUser,
 ) -> Result<Json<Vec<Session>>, (StatusCode, String)> {
-    let sessions: Vec<Session> =
-        sqlx::query_as("SELECT * FROM sessions WHERE tenant_id = $1 ORDER BY started_at DESC LIMIT 50")
+    let is_admin = claims.role == "owner" || claims.role == "admin";
+    let sessions: Vec<Session> = if is_admin {
+        sqlx::query_as("SELECT * FROM sessions WHERE tenant_id = $1 ORDER BY started_at DESC LIMIT 100")
             .bind(claims.tenant_id)
-            .fetch_all(&state.db)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+            .fetch_all(&state.db).await
+    } else {
+        sqlx::query_as("SELECT * FROM sessions WHERE tenant_id = $1 AND user_id = $2 ORDER BY started_at DESC LIMIT 100")
+            .bind(claims.tenant_id).bind(claims.sub)
+            .fetch_all(&state.db).await
+    }
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
     Ok(Json(sessions))
 }
 
@@ -145,11 +151,16 @@ pub async fn list_active_sessions(
     State(state): State<AppState>,
     AuthUser(claims): AuthUser,
 ) -> Result<Json<Vec<Session>>, (StatusCode, String)> {
-    let sessions: Vec<Session> =
+    let is_admin = claims.role == "owner" || claims.role == "admin";
+    let sessions: Vec<Session> = if is_admin {
         sqlx::query_as("SELECT * FROM sessions WHERE tenant_id = $1 AND ended_at IS NULL ORDER BY started_at DESC")
             .bind(claims.tenant_id)
-            .fetch_all(&state.db)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+            .fetch_all(&state.db).await
+    } else {
+        sqlx::query_as("SELECT * FROM sessions WHERE tenant_id = $1 AND user_id = $2 AND ended_at IS NULL ORDER BY started_at DESC")
+            .bind(claims.tenant_id).bind(claims.sub)
+            .fetch_all(&state.db).await
+    }
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
     Ok(Json(sessions))
 }

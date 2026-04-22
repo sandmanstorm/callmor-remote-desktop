@@ -2,6 +2,18 @@ import axios from 'axios';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
+/// Safely extract a human-readable error message from an axios error.
+/// Backend sometimes returns a string body, sometimes a JSON object —
+/// this handles both without React crashing on "Objects are not valid as child".
+export function errMsg(err: any, fallback = 'An error occurred'): string {
+  const data = err?.response?.data;
+  if (typeof data === 'string') return data;
+  if (data?.error) return String(data.error);
+  if (data?.message) return String(data.message);
+  if (err?.message) return String(err.message);
+  return fallback;
+}
+
 const api = axios.create({ baseURL: API_BASE });
 
 // Attach JWT to every request
@@ -14,24 +26,46 @@ api.interceptors.request.use((config) => {
 });
 
 // Auto-refresh on 401
+// Concurrent 401s must share a single refresh request, not each try their own.
+let refreshInflight: Promise<string> | null = null;
+
+async function refreshAccessToken(): Promise<string> {
+  if (refreshInflight) return refreshInflight;
+  refreshInflight = (async () => {
+    const refreshToken = localStorage.getItem('refresh_token');
+    if (!refreshToken) throw new Error('no refresh token');
+    try {
+      const { data } = await axios.post(`${API_BASE}/auth/refresh`, {
+        refresh_token: refreshToken,
+      });
+      localStorage.setItem('access_token', data.access_token);
+      localStorage.setItem('refresh_token', data.refresh_token);
+      return data.access_token as string;
+    } finally {
+      // Allow next cycle to start its own refresh (after current resolves)
+      setTimeout(() => { refreshInflight = null; }, 0);
+    }
+  })();
+  return refreshInflight;
+}
+
 api.interceptors.response.use(
   (res) => res,
   async (error) => {
     const original = error.config;
-    if (error.response?.status === 401 && !original._retry) {
+    if (error.response?.status === 401 && original && !original._retry) {
       original._retry = true;
-      const refreshToken = localStorage.getItem('refresh_token');
-      if (refreshToken) {
-        try {
-          const { data } = await axios.post(`${API_BASE}/auth/refresh`, {
-            refresh_token: refreshToken,
-          });
-          localStorage.setItem('access_token', data.access_token);
-          localStorage.setItem('refresh_token', data.refresh_token);
-          original.headers.Authorization = `Bearer ${data.access_token}`;
-          return api(original);
-        } catch {
-          localStorage.clear();
+      try {
+        const newToken = await refreshAccessToken();
+        original.headers = original.headers || {};
+        original.headers.Authorization = `Bearer ${newToken}`;
+        return api(original);
+      } catch {
+        // Refresh failed — clear auth state and bounce to login
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('refresh_token');
+        localStorage.removeItem('user');
+        if (window.location.pathname !== '/login') {
           window.location.href = '/login';
         }
       }

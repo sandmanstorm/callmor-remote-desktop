@@ -127,9 +127,6 @@ pub async fn update_smtp(
     Ok(StatusCode::NO_CONTENT)
 }
 
-#[derive(Deserialize)]
-pub struct ClearSmtpRequest {}
-
 pub async fn clear_smtp(
     State(state): State<AppState>,
     AuthUser(claims): AuthUser,

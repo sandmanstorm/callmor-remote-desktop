@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { invitationsApi } from '../lib/api';
+import { invitationsApi, errMsg } from '../lib/api';
 import type { InvitationDetails } from '../lib/api';
 import { useAuth } from '../lib/auth';
 
@@ -19,7 +19,7 @@ export default function AcceptInvite() {
     if (!token) return;
     invitationsApi.getByToken(token)
       .then((res) => setInvite(res.data))
-      .catch((err) => setError(err.response?.data || 'Invitation not found or expired'))
+      .catch((err) => setError(errMsg(err, 'Invitation not found or expired')))
       .finally(() => setLoading(false));
   }, [token]);
 
@@ -33,7 +33,7 @@ export default function AcceptInvite() {
       setAuth(data.user, data.access_token, data.refresh_token);
       navigate('/');
     } catch (err: any) {
-      setError(err.response?.data || 'Failed to accept invitation');
+      setError(errMsg(err, 'Failed to accept invitation'));
     } finally {
       setSubmitting(false);
     }

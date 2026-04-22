@@ -17,7 +17,8 @@ use tracing_subscriber::EnvFilter;
 type ClientTx = mpsc::UnboundedSender<String>;
 
 struct Room {
-    agent: Option<ClientTx>,
+    /// Agent stored with its conn_id so disconnect only removes the current one.
+    agent: Option<(u64, ClientTx)>,
     browsers: HashMap<u64, ClientTx>,
 }
 
@@ -37,7 +38,6 @@ struct RelayState {
     rooms: Rooms,
     pool: PgPool,
     jwt_key: Arc<DecodingKey>,
-    auth_required: bool,
 }
 
 static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
@@ -55,14 +55,11 @@ async fn main() -> Result<()> {
         .parse()?;
 
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    let jwt_secret = std::env::var("JWT_SECRET").unwrap_or_else(|_| {
-        let db_pass = std::env::var("POSTGRES_PASSWORD").unwrap_or_else(|_| "dev-secret".into());
-        format!("callmor-jwt-{db_pass}")
-    });
-
-    let auth_required = std::env::var("RELAY_AUTH_REQUIRED")
-        .map(|v| v == "true" || v == "1")
-        .unwrap_or(true); // default: auth required
+    let jwt_secret = std::env::var("JWT_SECRET")
+        .expect("JWT_SECRET must be set (same value as API server)");
+    if jwt_secret.len() < 32 {
+        panic!("JWT_SECRET must be at least 32 characters");
+    }
 
     let pool = callmor_shared::db::create_pool(&database_url).await?;
     info!("Relay connected to PostgreSQL");
@@ -71,12 +68,11 @@ async fn main() -> Result<()> {
         rooms: Arc::new(RwLock::new(HashMap::new())),
         pool,
         jwt_key: Arc::new(DecodingKey::from_secret(jwt_secret.as_bytes())),
-        auth_required,
     };
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let listener = TcpListener::bind(addr).await?;
-    info!("Callmor Relay listening on {addr} (auth_required={auth_required})");
+    info!("Callmor Relay listening on {addr} (auth always required)");
 
     loop {
         match listener.accept().await {
@@ -134,29 +130,27 @@ async fn handle_connection(stream: TcpStream, peer: SocketAddr, state: RelayStat
         }
     };
 
-    // --- Authentication ---
-    if state.auth_required {
-        let token = match token.as_deref() {
-            Some(t) => t,
-            None => {
-                warn!("{peer}: Missing token for {role:?}");
-                send_error_and_close(&mut ws_tx, "Missing auth token").await;
-                return Ok(());
-            }
-        };
-
-        let validation_result = match role {
-            Role::Agent => auth::validate_agent_token(&state.pool, token, &machine_id).await,
-            Role::Browser => {
-                auth::validate_session_token(&state.jwt_key, token, &machine_id).map(|_| uuid::Uuid::nil())
-            }
-        };
-
-        if let Err(e) = validation_result {
-            warn!("{peer}: Auth failed for {role:?} machine={machine_id}: {e}");
-            send_error_and_close(&mut ws_tx, "Authentication failed").await;
+    // --- Authentication (always required) ---
+    let token = match token.as_deref() {
+        Some(t) => t,
+        None => {
+            warn!("{peer}: Missing token for {role:?}");
+            send_error_and_close(&mut ws_tx, "Missing auth token").await;
             return Ok(());
         }
+    };
+
+    let validation_result = match role {
+        Role::Agent => auth::validate_agent_token(&state.pool, token, &machine_id).await,
+        Role::Browser => {
+            auth::validate_session_token(&state.jwt_key, token, &machine_id).map(|_| uuid::Uuid::nil())
+        }
+    };
+
+    if let Err(e) = validation_result {
+        warn!("{peer}: Auth failed for {role:?} machine={machine_id}: {e}");
+        send_error_and_close(&mut ws_tx, "Authentication failed").await;
+        return Ok(());
     }
 
     info!("{peer}: Hello as {role:?} for machine {machine_id} (authenticated)");
@@ -173,7 +167,7 @@ async fn handle_connection(stream: TcpStream, peer: SocketAddr, state: RelayStat
                 if room.agent.is_some() {
                     info!("{peer}: Replacing existing agent for machine {machine_id}");
                 }
-                room.agent = Some(tx.clone());
+                room.agent = Some((conn_id, tx.clone()));
             }
             Role::Browser => {
                 room.browsers.insert(conn_id, tx.clone());
@@ -216,7 +210,7 @@ async fn handle_connection(stream: TcpStream, peer: SocketAddr, state: RelayStat
                                     }
                                 }
                                 Role::Browser => {
-                                    if let Some(agent_tx) = &room.agent {
+                                    if let Some((_, agent_tx)) = &room.agent {
                                         let _ = agent_tx.send(text_str.clone());
                                     }
                                 }
@@ -250,7 +244,13 @@ async fn handle_connection(stream: TcpStream, peer: SocketAddr, state: RelayStat
         if let Some(room) = rooms_guard.get_mut(&machine_id) {
             match role {
                 Role::Agent => {
-                    room.agent = None;
+                    // Only clear if this IS the current agent (not a replacement).
+                    // If a newer agent replaced us, leave them in place.
+                    if let Some((current_id, _)) = &room.agent {
+                        if *current_id == conn_id {
+                            room.agent = None;
+                        }
+                    }
                 }
                 Role::Browser => {
                     room.browsers.remove(&conn_id);

@@ -20,8 +20,8 @@ pub async fn send_test_email(
     AuthUser(claims): AuthUser,
     Json(req): Json<TestEmailRequest>,
 ) -> Result<Json<TestEmailResponse>, (StatusCode, String)> {
-    if claims.role != "owner" && claims.role != "admin" {
-        return Err((StatusCode::FORBIDDEN, "Only owners/admins can test email".into()));
+    if !claims.is_superadmin {
+        return Err((StatusCode::FORBIDDEN, "Requires platform super-admin".into()));
     }
 
     let Some(smtp) = crate::email::EmailConfig::load(&state.db).await else {

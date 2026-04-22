@@ -1,8 +1,17 @@
 use anyhow::Result;
 use chrono::{Duration, Utc};
-use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
+use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+/// Build a strict HS256-only validator. Prevents algorithm confusion attacks
+/// (e.g., `alg: none` or RS256 swap) that can occur with Validation::default().
+fn strict_validation() -> Validation {
+    let mut v = Validation::new(Algorithm::HS256);
+    v.validate_exp = true;
+    v.leeway = 0;
+    v
+}
 
 /// Access token claims — used for dashboard API requests.
 #[derive(Debug, Serialize, Deserialize)]
@@ -81,12 +90,12 @@ impl JwtKeys {
     }
 
     pub fn validate_token(&self, token: &str) -> Result<Claims> {
-        let data = decode::<Claims>(token, &self.decoding, &Validation::default())?;
+        let data = decode::<Claims>(token, &self.decoding, &strict_validation())?;
         Ok(data.claims)
     }
 
     pub fn validate_session_token(&self, token: &str) -> Result<SessionClaims> {
-        let data = decode::<SessionClaims>(token, &self.decoding, &Validation::default())?;
+        let data = decode::<SessionClaims>(token, &self.decoding, &strict_validation())?;
         if data.claims.token_type != "session" {
             anyhow::bail!("Not a session token");
         }

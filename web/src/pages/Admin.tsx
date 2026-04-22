@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
-import { adminApi, settingsApi, auditApi } from '../lib/api';
+import { adminApi, settingsApi, auditApi, errMsg } from '../lib/api';
 import type { PlatformStats, TenantOverview, GlobalUser, GlobalMachine, SmtpSettings } from '../lib/api';
 import AuditLog from '../components/AuditLog';
 import { Monitor, LogOut, ArrowLeft, Building2, Users, HardDrive, Shield, Trash2, Crown, Wifi, WifiOff, Settings, Mail, Send, Activity } from 'lucide-react';
@@ -41,7 +41,7 @@ export default function Admin() {
         setMachines(data);
       }
     } catch (err: any) {
-      alert(err.response?.data || 'Failed to load');
+      alert(errMsg(err, 'Failed to load'));
     }
   }
 
@@ -51,7 +51,7 @@ export default function Admin() {
       await adminApi.deleteTenant(t.id);
       loadTab('tenants');
     } catch (err: any) {
-      alert(err.response?.data || 'Failed to delete');
+      alert(errMsg(err, 'Failed to delete'));
     }
   };
 
@@ -62,7 +62,7 @@ export default function Admin() {
       await adminApi.setSuperadmin(u.id, !u.is_superadmin);
       loadTab('users');
     } catch (err: any) {
-      alert(err.response?.data || 'Failed');
+      alert(errMsg(err, 'Failed'));
     }
   };
 
@@ -242,7 +242,7 @@ function SmtpSettingsForm() {
       setMessage({ type: 'success', text: 'SMTP settings saved.' });
       await load();
     } catch (err: any) {
-      setMessage({ type: 'error', text: err.response?.data || 'Failed to save' });
+      setMessage({ type: 'error', text: errMsg(err, 'Failed to save') });
     } finally {
       setSaving(false);
     }
@@ -255,7 +255,7 @@ function SmtpSettingsForm() {
       setMessage({ type: 'success', text: 'SMTP settings cleared.' });
       await load();
     } catch (err: any) {
-      setMessage({ type: 'error', text: err.response?.data || 'Failed' });
+      setMessage({ type: 'error', text: errMsg(err, 'Failed') });
     }
   };
 
@@ -269,7 +269,7 @@ function SmtpSettingsForm() {
         text: data.message,
       });
     } catch (err: any) {
-      setMessage({ type: 'error', text: err.response?.data || 'Test failed' });
+      setMessage({ type: 'error', text: errMsg(err, 'Test failed') });
     } finally {
       setTesting(false);
     }
