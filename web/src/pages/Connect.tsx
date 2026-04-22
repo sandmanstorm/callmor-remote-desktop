@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { adhocApi, errMsg } from '../lib/api';
 import { Monitor, Loader2 } from 'lucide-react';
 
@@ -23,13 +23,12 @@ export default function Connect() {
       const { data } = await adhocApi.connect({ access_code: code, pin });
       const params = new URLSearchParams({
         relay: data.relay_url,
-        machine: data.machine_id,
         token: data.session_token,
         permission: 'full_control',
         session: 'adhoc',
         hostname: data.hostname,
       });
-      window.location.href = `/viewer-test.html?${params.toString()}`;
+      navigate(`/viewer/${encodeURIComponent(data.machine_id)}?${params.toString()}`);
     } catch (err: any) {
       setError(errMsg(err, 'Could not connect'));
       setConnecting(false);
@@ -37,7 +36,7 @@ export default function Connect() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100 flex items-center justify-center p-4">
+    <div className="flex items-center justify-center px-4 py-12 min-h-[calc(100vh-56px)]">
       <div className="w-full max-w-md">
         <div className="flex items-center gap-3 mb-6">
           <Monitor className="w-8 h-8 text-blue-400" />
@@ -96,9 +95,9 @@ export default function Connect() {
 
         <div className="mt-10 pt-6 border-t border-gray-800 text-sm text-gray-500">
           <p className="mb-2">Need to let someone connect to this computer?</p>
-          <a href="/download" className="text-blue-400 hover:text-blue-300">
+          <Link to="/download" className="text-blue-400 hover:text-blue-300">
             → Download the agent
-          </a>
+          </Link>
           <span className="mx-2 text-gray-700">·</span>
           <button
             onClick={() => navigate('/login')}

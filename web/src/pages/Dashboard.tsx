@@ -118,12 +118,12 @@ export default function Dashboard() {
       const { data } = await sessionsApi.create(machine.id, permission);
       const params = new URLSearchParams({
         relay: data.relay_url,
-        machine: data.machine_id,
         token: data.session_token,
         permission,
         session: data.session.id,
+        hostname: machine.hostname || machine.name,
       });
-      window.open(`/viewer-test.html?${params.toString()}`, '_blank');
+      window.open(`/viewer/${encodeURIComponent(data.machine_id)}?${params.toString()}`, '_blank');
     } catch (err: any) {
       alert(errMsg(err, 'Failed to start session'));
     }

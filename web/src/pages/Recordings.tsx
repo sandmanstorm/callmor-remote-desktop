@@ -113,7 +113,7 @@ export default function Recordings() {
       </header>
 
       <main className="max-w-5xl mx-auto px-6 py-8">
-        <button onClick={() => navigate('/')} className="flex items-center gap-1 text-gray-400 hover:text-white text-sm mb-4">
+        <button onClick={() => navigate('/app')} className="flex items-center gap-1 text-gray-400 hover:text-white text-sm mb-4">
           <ArrowLeft className="w-4 h-4" /> Back to Machines
         </button>
 

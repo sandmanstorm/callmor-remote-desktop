@@ -31,7 +31,7 @@ export default function AcceptInvite() {
     try {
       const { data } = await invitationsApi.accept(token, password, displayName);
       setAuth(data.user, data.access_token, data.refresh_token);
-      navigate('/');
+      navigate('/app');
     } catch (err: any) {
       setError(errMsg(err, 'Failed to accept invitation'));
     } finally {
@@ -41,7 +41,7 @@ export default function AcceptInvite() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+      <div className="flex items-center justify-center py-20">
         <p className="text-gray-400">Loading invitation...</p>
       </div>
     );
@@ -49,7 +49,7 @@ export default function AcceptInvite() {
 
   if (error && !invite) {
     return (
-      <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
+      <div className="flex items-center justify-center p-4 py-12 min-h-[calc(100vh-56px)]">
         <div className="bg-gray-900 border border-red-800 rounded-lg p-6 max-w-md">
           <h2 className="text-lg font-semibold text-red-400 mb-2">Invitation Invalid</h2>
           <p className="text-gray-400 text-sm">{error}</p>

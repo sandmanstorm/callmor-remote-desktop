@@ -26,6 +26,10 @@ webrtc = "0.14"
 # H.264 encoding (Cisco OpenH264, bundled)
 openh264 = "0.8"
 
+# Portable-mode native GUI — pure Rust, no external deps on Windows.
+eframe = { version = "0.29", default-features = false, features = ["default_fonts", "glow"] }
+egui = "0.29"
+
 # Windows APIs (DXGI, D3D11, SendInput, services)
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = [
@@ -38,6 +42,7 @@ windows = { version = "0.62", features = [
     "Win32_System_Com",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Shell",
     "Win32_System_Threading",
 ] }
 windows-service = "0.8"

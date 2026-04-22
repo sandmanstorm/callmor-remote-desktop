@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { Download as DownloadIcon, Monitor, Apple, Terminal, Shield } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -12,9 +13,9 @@ export default function Download() {
     {
       os: 'Windows',
       icon: Monitor,
-      file: 'callmor-agent-public.exe',
+      file: 'callmor.exe',
       href: `${API_BASE}/downloads/agent/public/windows`,
-      note: 'Windows 10 or later · 64-bit',
+      note: 'Windows 10 or later · 64-bit · runs instantly, no install',
     },
     {
       os: 'macOS',
@@ -34,7 +35,7 @@ export default function Download() {
   ];
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100 flex items-center justify-center p-4">
+    <div className="flex items-center justify-center px-4 py-12 min-h-[calc(100vh-56px)]">
       <div className="w-full max-w-2xl">
         <div className="flex items-center gap-3 mb-6">
           <DownloadIcon className="w-8 h-8 text-blue-400" />
@@ -43,7 +44,7 @@ export default function Download() {
         <p className="text-sm text-gray-400 mb-8">
           Install once on the computer you want to share. When the agent starts
           it will show an access code and PIN — share both with anyone who
-          needs to connect from <a href="/connect" className="text-blue-400 hover:underline">remote.callmor.ai/connect</a>.
+          needs to connect from <Link to="/connect" className="text-blue-400 hover:underline">remote.callmor.ai/connect</Link>.
           No account needed.
         </p>
 
@@ -87,13 +88,13 @@ export default function Download() {
 
         <div className="mt-10 pt-6 border-t border-gray-800 text-sm text-gray-500">
           <p className="mb-2">Got an access code from a colleague?</p>
-          <a href="/connect" className="text-blue-400 hover:text-blue-300">
+          <Link to="/connect" className="text-blue-400 hover:text-blue-300">
             → Connect to a computer
-          </a>
+          </Link>
           <span className="mx-2 text-gray-700">·</span>
-          <a href="/login" className="text-blue-400 hover:text-blue-300">
+          <Link to="/login" className="text-blue-400 hover:text-blue-300">
             Sign in to manage machines
-          </a>
+          </Link>
         </div>
       </div>
     </div>

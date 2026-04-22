@@ -19,7 +19,7 @@ export default function Login() {
     try {
       const { data } = await authApi.login({ email, password, tenant_slug: tenantSlug });
       setAuth(data.user, data.access_token, data.refresh_token);
-      navigate('/');
+      navigate('/app');
     } catch (err: any) {
       setError(errMsg(err, 'Login failed'));
     } finally {
@@ -28,7 +28,7 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
+    <div className="flex items-center justify-center px-4 py-12 min-h-[calc(100vh-56px)]">
       <div className="w-full max-w-md">
         <h1 className="text-3xl font-bold text-white text-center mb-2">Callmor Remote</h1>
         <p className="text-gray-400 text-center mb-8">Sign in to your account</p>

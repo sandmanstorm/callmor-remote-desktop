@@ -19,7 +19,7 @@ export default function Admin() {
 
   useEffect(() => {
     if (!user?.is_superadmin) {
-      navigate('/');
+      navigate('/app');
       return;
     }
     loadTab(tab);
@@ -76,7 +76,7 @@ export default function Admin() {
           <h1 className="text-lg font-semibold text-white">Callmor Platform Admin</h1>
         </div>
         <div className="flex items-center gap-4">
-          <button onClick={() => navigate('/')} className="text-sm text-gray-400 hover:text-white flex items-center gap-1">
+          <button onClick={() => navigate('/app')} className="text-sm text-gray-400 hover:text-white flex items-center gap-1">
             <ArrowLeft className="w-4 h-4" /> My Dashboard
           </button>
           <span className="text-sm text-gray-400">{user?.display_name}</span>

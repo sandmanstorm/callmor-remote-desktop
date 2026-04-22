@@ -56,10 +56,30 @@ build_installer() {
     ls -lh "$installer" | awk '{print "    "$5, $9}'
 }
 
+# Portable-launch variant: the file the public /download page serves. User
+# double-clicks → silent extract to %LOCALAPPDATA% → GUI window appears.
+# No admin, no installer pages, no NSIS prompts. "Install as service" is a
+# button inside the GUI.
+build_portable() {
+    local out_dir="$1"
+    local out_name="$2"
+    mkdir -p "$out_dir"
+    local artifact="$out_dir/$out_name"
+    echo "  Building portable launcher -> $artifact"
+    makensis -V2 \
+        -DVERSION="$VERSION" \
+        -DBIN="$BIN" \
+        -DDLLDIR="$DLL_STAGE" \
+        -DOUTPUT="$artifact" \
+        "$REPO_ROOT/packaging/windows/portable.nsi" > /dev/null
+    [ -f "$artifact" ] || { echo "    FAILED"; return 1; }
+    ls -lh "$artifact" | awk '{print "    "$5, $9}'
+}
+
 build_installer "tenant" "$REPO_ROOT/target/windows"        "callmor-agent-setup-${VERSION}.exe"
-build_installer "adhoc"  "$REPO_ROOT/target/windows-public" "callmor-agent-public-${VERSION}.exe"
+build_portable           "$REPO_ROOT/target/windows-public" "callmor-${VERSION}.exe"
 
 echo ""
 echo "Done:"
-echo "  Tenant installer (requires login to download): target/windows/callmor-agent-setup-${VERSION}.exe"
-echo "  Public installer (no-login, code+pin flow):    target/windows-public/callmor-agent-public-${VERSION}.exe"
+echo "  Tenant service installer  (requires login): target/windows/callmor-agent-setup-${VERSION}.exe"
+echo "  Portable public launcher  (no login):       target/windows-public/callmor-${VERSION}.exe"
