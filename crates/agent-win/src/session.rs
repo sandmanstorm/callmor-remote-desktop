@@ -394,16 +394,35 @@ fn capture_loop(
                         ..Default::default()
                     };
                     let track = track.clone();
-                    tokio::runtime::Handle::current().block_on(async move {
-                        let _ = track.write_sample(&sample).await;
-                    });
-                    frames_sent += 1;
-                    bytes_sent += size as u64;
-                    if frames_sent == 1 {
-                        info!("First encoded frame sent ({size} bytes)");
+                    let write_result: std::result::Result<(), webrtc::Error> =
+                        tokio::runtime::Handle::current()
+                            .block_on(async move { track.write_sample(&sample).await });
+                    match write_result {
+                        Ok(()) => {
+                            frames_sent += 1;
+                            bytes_sent += size as u64;
+                            if frames_sent == 1 {
+                                info!("First encoded frame sent ({size} bytes)");
+                            }
+                        }
+                        Err(e) => {
+                            // Don't spam the log for every frame; warn once and
+                            // continue. If write_sample consistently fails, the
+                            // first warning tells us why.
+                            if frames_sent == 0 {
+                                warn!("write_sample failed on first frame: {e}. Track may not be negotiated yet.");
+                            }
+                        }
                     }
                 } else {
                     empty_frames += 1;
+                }
+
+                // Force an IDR keyframe every 30 frames (~1s at 30fps) so
+                // browsers that miss the initial SPS/PPS recover quickly
+                // rather than staying stuck at "0 frames decoded" forever.
+                if frames_sent > 0 && frames_sent.is_multiple_of(30) {
+                    encoder.force_intra_frame();
                 }
 
                 if last_log.elapsed() >= std::time::Duration::from_secs(3) {
