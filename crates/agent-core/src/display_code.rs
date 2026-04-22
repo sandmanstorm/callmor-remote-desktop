@@ -32,14 +32,34 @@ pub fn show(access_code: &str, pin: &str) {
     // headless service, etc.) the user still has somewhere to read the code.
     write_code_file(&message);
 
+    // On Windows a service runs in Session 0 with no user desktop, so a
+    // MessageBox there is invisible and just wastes a thread. Only show the
+    // dialog when we clearly have an interactive session.
     #[cfg(windows)]
-    show_windows_dialog(&message);
+    if is_interactive_session() {
+        show_windows_dialog(&message);
+    }
 
     #[cfg(target_os = "macos")]
     show_macos_dialog(&message);
 
     #[cfg(all(unix, not(target_os = "macos")))]
     show_linux_notification(access_code, pin);
+}
+
+/// Best-effort: detect whether we're running in a user session (vs Session 0
+/// as a service). Services under LocalSystem have USERPROFILE pointing at
+/// `C:\Windows\system32\config\systemprofile`, which is a reliable signal.
+#[cfg(windows)]
+fn is_interactive_session() -> bool {
+    match std::env::var("USERPROFILE") {
+        Ok(p) => {
+            let lower = p.to_ascii_lowercase();
+            !lower.contains(r"system32\config\systemprofile")
+                && !lower.contains(r"system32/config/systemprofile")
+        }
+        Err(_) => false,
+    }
 }
 
 /// "ABCD1234" -> "ABCD-1234" for easier reading-aloud.
@@ -51,51 +71,53 @@ fn format_code(code: &str) -> String {
     }
 }
 
-fn desktop_file_path() -> Option<PathBuf> {
-    // Per-OS preferred location for a visible file
+fn write_code_file(content: &str) {
+    // Target list: write to every plausible location so at least one is
+    // visible regardless of whether we're running as a service or a user
+    // process. A failed write on any one path is silent and non-fatal.
+    let paths = code_file_targets();
+    for path in &paths {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(path, content);
+    }
+}
+
+fn code_file_targets() -> Vec<PathBuf> {
+    let mut out = Vec::new();
+
     #[cfg(windows)]
     {
-        // Try USERPROFILE first (real user's desktop), fall back to PUBLIC
-        // (service-mode install, no interactive session).
-        if let Ok(p) = std::env::var("USERPROFILE") {
-            return Some(PathBuf::from(p).join("Desktop").join("Callmor-Code.txt"));
-        }
+        // Public Desktop — merges into every user's actual visible desktop.
+        // This works from a Session 0 service since we write to C:\Users\Public.
         if let Ok(p) = std::env::var("PUBLIC") {
-            return Some(PathBuf::from(p).join("Desktop").join("Callmor-Code.txt"));
+            out.push(PathBuf::from(p).join("Desktop").join("Callmor-Code.txt"));
+        } else {
+            out.push(PathBuf::from(r"C:\Users\Public\Desktop\Callmor-Code.txt"));
         }
-        Some(PathBuf::from(r"C:\ProgramData\Callmor\Callmor-Code.txt"))
+        // Current-user Desktop — only meaningful when run interactively. When
+        // the service runs as SYSTEM this path would hit
+        // system32\config\systemprofile, which is useless to the user; skip
+        // it there.
+        if let Ok(p) = std::env::var("USERPROFILE") {
+            let lower = p.to_ascii_lowercase();
+            if !lower.contains(r"system32\config\systemprofile") {
+                out.push(PathBuf::from(p).join("Desktop").join("Callmor-Code.txt"));
+            }
+        }
+        // Stable machine-readable copy for a UI helper to pick up later.
+        out.push(PathBuf::from(r"C:\ProgramData\Callmor\code.txt"));
     }
     #[cfg(unix)]
     {
         if let Ok(home) = std::env::var("HOME") {
-            let p = PathBuf::from(home).join("Desktop").join("Callmor-Code.txt");
-            return Some(p);
+            out.push(PathBuf::from(home).join("Desktop").join("Callmor-Code.txt"));
         }
-        Some(PathBuf::from("/tmp/callmor-code.txt"))
+        out.push(PathBuf::from("/tmp/callmor-code.txt"));
     }
-}
 
-fn write_code_file(content: &str) {
-    if let Some(path) = desktop_file_path() {
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let _ = std::fs::write(&path, content);
-    }
-    // Also write a stable machine-readable copy that a UI helper or tray app
-    // can poll to surface the code to every logged-in user.
-    #[cfg(windows)]
-    {
-        let stable = PathBuf::from(r"C:\ProgramData\Callmor\code.txt");
-        if let Some(parent) = stable.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let _ = std::fs::write(stable, content);
-    }
-    #[cfg(unix)]
-    {
-        let _ = std::fs::write("/tmp/callmor-code.txt", content);
-    }
+    out
 }
 
 #[cfg(windows)]
