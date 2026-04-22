@@ -89,7 +89,7 @@ pub async fn create_invitation(
     let invite_link = format!("{}/invite/{}", state.public_url, token);
     let mut email_sent = false;
 
-    if let Some(smtp) = &state.email {
+    if let Some(smtp) = crate::email::EmailConfig::load(&state.db).await {
         let (subject, html, text) = crate::email::invitation_email(
             &req.email,
             &inviter_name,

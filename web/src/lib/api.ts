@@ -226,4 +226,35 @@ export const adminApi = {
   listMachines: () => api.get<GlobalMachine[]>('/admin/machines'),
 };
 
+// --- SMTP Settings ---
+
+export interface SmtpSettings {
+  host: string;
+  port: number;
+  username: string;
+  from_email: string;
+  from_name: string;
+  tls: 'starttls' | 'implicit' | 'none';
+  has_password: boolean;
+  configured: boolean;
+}
+
+export interface UpdateSmtpRequest {
+  host: string;
+  port: number;
+  username: string;
+  password?: string; // only sent if changing
+  from_email: string;
+  from_name: string;
+  tls: 'starttls' | 'implicit' | 'none';
+}
+
+export const settingsApi = {
+  getSmtp: () => api.get<SmtpSettings>('/admin/settings/smtp'),
+  updateSmtp: (data: UpdateSmtpRequest) => api.put('/admin/settings/smtp', data),
+  clearSmtp: () => api.delete('/admin/settings/smtp'),
+  testEmail: (to: string) =>
+    api.post<{ sent: boolean; message: string }>('/admin/test-email', { to }),
+};
+
 export default api;

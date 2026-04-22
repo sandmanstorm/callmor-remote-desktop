@@ -39,19 +39,18 @@ async fn main() -> Result<()> {
     let pool = callmor_shared::db::create_pool(&database_url).await?;
     info!("Connected to PostgreSQL");
 
-    let email_config = email::EmailConfig::from_env();
-    if email_config.is_some() {
+    let public_url = std::env::var("PUBLIC_WEB_URL").unwrap_or_else(|_| "https://remote.callmor.ai".into());
+
+    // Check SMTP config once at startup (for logging only; we load fresh from DB on each send)
+    if email::EmailConfig::load(&pool).await.is_some() {
         info!("SMTP configured (email enabled)");
     } else {
-        info!("SMTP not configured (SMTP_HOST missing) — emails disabled");
+        info!("SMTP not configured — emails disabled until you set it in the admin panel");
     }
-
-    let public_url = std::env::var("PUBLIC_WEB_URL").unwrap_or_else(|_| "https://remote.callmor.ai".into());
 
     let state = AppState {
         db: pool.clone(),
         jwt: jwt::JwtKeys::from_secret(jwt_secret.as_bytes()),
-        email: email_config,
         public_url,
     };
 
@@ -121,6 +120,9 @@ async fn main() -> Result<()> {
         .route("/admin/users", get(routes::admin::list_users))
         .route("/admin/users/{id}/superadmin", patch(routes::admin::set_superadmin))
         .route("/admin/machines", get(routes::admin::list_machines))
+        .route("/admin/settings/smtp", get(routes::settings::get_smtp))
+        .route("/admin/settings/smtp", axum::routing::put(routes::settings::update_smtp))
+        .route("/admin/settings/smtp", delete(routes::settings::clear_smtp))
         .layer(cors)
         .with_state(state);
 

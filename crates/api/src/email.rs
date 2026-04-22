@@ -23,43 +23,60 @@ pub enum TlsMode {
 }
 
 impl EmailConfig {
-    /// Load from environment. Returns None if SMTP_HOST is not set (graceful degradation).
+    /// Load from DB first; fall back to env vars if DB has no settings.
+    /// Returns None if neither source has SMTP_HOST.
+    pub async fn load(pool: &sqlx::PgPool) -> Option<Self> {
+        if let Some(cfg) = Self::from_db(pool).await {
+            return Some(cfg);
+        }
+        Self::from_env()
+    }
+
+    async fn from_db(pool: &sqlx::PgPool) -> Option<Self> {
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            "SELECT key, value FROM app_settings WHERE key LIKE 'smtp.%'",
+        )
+        .fetch_all(pool)
+        .await
+        .ok()?;
+
+        if rows.is_empty() {
+            return None;
+        }
+
+        let map: std::collections::HashMap<String, String> = rows.into_iter().collect();
+        let host = map.get("smtp.host").cloned().filter(|s| !s.is_empty())?;
+        let port: u16 = map.get("smtp.port").and_then(|s| s.parse().ok()).unwrap_or(587);
+        let username = map.get("smtp.username").cloned().unwrap_or_default();
+        let password = map.get("smtp.password").cloned().unwrap_or_default();
+        let from_email = map.get("smtp.from_email").cloned().filter(|s| !s.is_empty()).unwrap_or_else(|| username.clone());
+        let from_name = map.get("smtp.from_name").cloned().filter(|s| !s.is_empty()).unwrap_or_else(|| "Callmor Remote".into());
+        let tls_mode = match map.get("smtp.tls").map(|s| s.to_lowercase()).as_deref() {
+            Some("implicit") | Some("tls") => TlsMode::Implicit,
+            Some("none") | Some("plain") => TlsMode::None,
+            _ => TlsMode::StartTls,
+        };
+
+        Some(EmailConfig { host, port, username, password, from_email, from_name, tls_mode })
+    }
+
+    /// Load from environment. Returns None if SMTP_HOST is not set.
     pub fn from_env() -> Option<Self> {
         let host = std::env::var("SMTP_HOST").ok()?;
         if host.is_empty() {
             return None;
         }
-
-        let port: u16 = std::env::var("SMTP_PORT")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(587);
-
+        let port: u16 = std::env::var("SMTP_PORT").ok().and_then(|s| s.parse().ok()).unwrap_or(587);
         let username = std::env::var("SMTP_USERNAME").unwrap_or_default();
         let password = std::env::var("SMTP_PASSWORD").unwrap_or_default();
-
         let from_email = std::env::var("SMTP_FROM_EMAIL").unwrap_or_else(|_| username.clone());
         let from_name = std::env::var("SMTP_FROM_NAME").unwrap_or_else(|_| "Callmor Remote".into());
-
-        let tls_mode = match std::env::var("SMTP_TLS")
-            .unwrap_or_else(|_| "starttls".into())
-            .to_lowercase()
-            .as_str()
-        {
+        let tls_mode = match std::env::var("SMTP_TLS").unwrap_or_else(|_| "starttls".into()).to_lowercase().as_str() {
             "implicit" | "tls" => TlsMode::Implicit,
             "none" | "plain" => TlsMode::None,
             _ => TlsMode::StartTls,
         };
-
-        Some(EmailConfig {
-            host,
-            port,
-            username,
-            password,
-            from_email,
-            from_name,
-            tls_mode,
-        })
+        Some(EmailConfig { host, port, username, password, from_email, from_name, tls_mode })
     }
 
     fn build_transport(&self) -> Result<AsyncSmtpTransport<Tokio1Executor>> {

@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
-import { adminApi } from '../lib/api';
-import type { PlatformStats, TenantOverview, GlobalUser, GlobalMachine } from '../lib/api';
-import { Monitor, LogOut, ArrowLeft, Building2, Users, HardDrive, Shield, Trash2, Crown, Wifi, WifiOff } from 'lucide-react';
+import { adminApi, settingsApi } from '../lib/api';
+import type { PlatformStats, TenantOverview, GlobalUser, GlobalMachine, SmtpSettings } from '../lib/api';
+import { Monitor, LogOut, ArrowLeft, Building2, Users, HardDrive, Shield, Trash2, Crown, Wifi, WifiOff, Settings, Mail, Send } from 'lucide-react';
 
-type Tab = 'stats' | 'tenants' | 'users' | 'machines';
+type Tab = 'stats' | 'tenants' | 'users' | 'machines' | 'settings';
 
 export default function Admin() {
   const { user, logout } = useAuth();
@@ -90,6 +90,7 @@ export default function Admin() {
             { id: 'tenants', icon: Building2, label: 'Tenants' },
             { id: 'users', icon: Users, label: 'Users' },
             { id: 'machines', icon: HardDrive, label: 'Machines' },
+            { id: 'settings', icon: Settings, label: 'Settings' },
           ].map(({ id, icon: Icon, label }) => (
             <button
               key={id}
@@ -183,7 +184,202 @@ export default function Admin() {
             {machines.length === 0 && <p className="text-gray-500">No machines.</p>}
           </div>
         )}
+
+        {tab === 'settings' && <SmtpSettingsForm />}
       </main>
+    </div>
+  );
+}
+
+function SmtpSettingsForm() {
+  const [loading, setLoading] = useState(true);
+  const [current, setCurrent] = useState<SmtpSettings | null>(null);
+  const [form, setForm] = useState({
+    host: '',
+    port: 587,
+    username: '',
+    password: '',
+    from_email: '',
+    from_name: 'Callmor Remote',
+    tls: 'starttls' as 'starttls' | 'implicit' | 'none',
+  });
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [testEmail, setTestEmail] = useState('');
+  const [testing, setTesting] = useState(false);
+
+  const load = async () => {
+    try {
+      const { data } = await settingsApi.getSmtp();
+      setCurrent(data);
+      setForm({
+        host: data.host,
+        port: data.port,
+        username: data.username,
+        password: '',
+        from_email: data.from_email,
+        from_name: data.from_name || 'Callmor Remote',
+        tls: data.tls as any,
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const handleSave = async () => {
+    setSaving(true);
+    setMessage(null);
+    try {
+      const body: any = { ...form };
+      if (!body.password) delete body.password; // only send password if user entered one
+      await settingsApi.updateSmtp(body);
+      setMessage({ type: 'success', text: 'SMTP settings saved.' });
+      await load();
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.response?.data || 'Failed to save' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleClear = async () => {
+    if (!confirm('Clear all SMTP settings? Emails will be disabled until reconfigured.')) return;
+    try {
+      await settingsApi.clearSmtp();
+      setMessage({ type: 'success', text: 'SMTP settings cleared.' });
+      await load();
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.response?.data || 'Failed' });
+    }
+  };
+
+  const handleTest = async () => {
+    if (!testEmail.trim()) return;
+    setTesting(true);
+    try {
+      const { data } = await settingsApi.testEmail(testEmail.trim());
+      setMessage({
+        type: data.sent ? 'success' : 'error',
+        text: data.message,
+      });
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.response?.data || 'Test failed' });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  if (loading) return <p className="text-gray-500">Loading settings...</p>;
+
+  return (
+    <div className="max-w-2xl">
+      <div className="flex items-center gap-2 mb-4">
+        <Mail className="w-5 h-5 text-blue-400" />
+        <h2 className="text-lg text-white font-semibold">SMTP / Email</h2>
+        {current?.configured && (
+          <span className="text-xs bg-green-900/40 text-green-400 px-2 py-0.5 rounded">Configured</span>
+        )}
+      </div>
+
+      <p className="text-sm text-gray-400 mb-4">
+        Configure an SMTP server so invitations are emailed automatically instead of copy-paste.
+        For Mail-in-a-Box: port 587, STARTTLS, use a mailbox you created as the username.
+      </p>
+
+      {message && (
+        <div className={`mb-4 px-3 py-2 rounded text-sm ${message.type === 'success' ? 'bg-green-900/30 border border-green-700 text-green-300' : 'bg-red-900/30 border border-red-700 text-red-300'}`}>
+          {message.text}
+        </div>
+      )}
+
+      <div className="bg-gray-900 border border-gray-800 rounded-lg p-5 space-y-3">
+        <div className="grid grid-cols-[1fr_120px] gap-3">
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">SMTP Host</label>
+            <input type="text" value={form.host} onChange={(e) => setForm({ ...form, host: e.target.value })}
+              placeholder="box.yourdomain.com"
+              className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white" />
+          </div>
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">Port</label>
+            <input type="number" value={form.port} onChange={(e) => setForm({ ...form, port: parseInt(e.target.value) || 587 })}
+              className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white" />
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm text-gray-400 mb-1">TLS Mode</label>
+          <select value={form.tls} onChange={(e) => setForm({ ...form, tls: e.target.value as any })}
+            className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white">
+            <option value="starttls">STARTTLS (port 587, recommended)</option>
+            <option value="implicit">Implicit TLS (port 465)</option>
+            <option value="none">None (plaintext, NOT recommended)</option>
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-sm text-gray-400 mb-1">Username (full email)</label>
+          <input type="text" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })}
+            placeholder="noreply@yourdomain.com"
+            className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white" />
+        </div>
+
+        <div>
+          <label className="block text-sm text-gray-400 mb-1">
+            Password {current?.has_password && <span className="text-xs text-green-400">(saved; leave blank to keep)</span>}
+          </label>
+          <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })}
+            placeholder={current?.has_password ? '••••••••' : 'mailbox password'}
+            className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white" />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">From email</label>
+            <input type="text" value={form.from_email} onChange={(e) => setForm({ ...form, from_email: e.target.value })}
+              placeholder="(defaults to username)"
+              className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white" />
+          </div>
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">From name</label>
+            <input type="text" value={form.from_name} onChange={(e) => setForm({ ...form, from_name: e.target.value })}
+              className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white" />
+          </div>
+        </div>
+
+        <div className="flex gap-2 pt-2">
+          <button onClick={handleSave} disabled={saving}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded text-sm">
+            {saving ? 'Saving...' : 'Save SMTP Settings'}
+          </button>
+          {current?.configured && (
+            <button onClick={handleClear}
+              className="px-4 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-red-400 rounded text-sm">
+              Clear
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Test */}
+      {current?.configured && (
+        <div className="bg-gray-900 border border-gray-800 rounded-lg p-5 mt-4">
+          <h3 className="text-white font-medium mb-2 flex items-center gap-2">
+            <Send className="w-4 h-4" /> Send Test Email
+          </h3>
+          <div className="flex gap-2">
+            <input type="email" value={testEmail} onChange={(e) => setTestEmail(e.target.value)}
+              placeholder="your@email.com"
+              className="flex-1 px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white" />
+            <button onClick={handleTest} disabled={testing || !testEmail}
+              className="px-4 py-2 bg-green-700 hover:bg-green-600 disabled:opacity-50 text-white rounded text-sm">
+              {testing ? 'Sending...' : 'Send Test'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

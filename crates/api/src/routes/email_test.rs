@@ -24,10 +24,10 @@ pub async fn send_test_email(
         return Err((StatusCode::FORBIDDEN, "Only owners/admins can test email".into()));
     }
 
-    let Some(smtp) = &state.email else {
+    let Some(smtp) = crate::email::EmailConfig::load(&state.db).await else {
         return Ok(Json(TestEmailResponse {
             sent: false,
-            message: "SMTP not configured. Set SMTP_HOST in .env and restart the API.".into(),
+            message: "SMTP not configured. Configure it in the admin panel → Settings.".into(),
         }));
     };
 
