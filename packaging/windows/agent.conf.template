@@ -1,0 +1,9 @@
+# Callmor Remote Desktop Agent Configuration (Windows)
+# Edit these values, then run install.bat as Administrator.
+
+RELAY_URL=wss://relay.callmor.ai
+API_URL=https://api.callmor.ai
+
+# From the Callmor dashboard when you added this machine
+MACHINE_ID=CHANGE_ME
+AGENT_TOKEN=CHANGE_ME

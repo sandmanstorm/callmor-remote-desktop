@@ -1,0 +1,60 @@
+name: Windows Agent
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'crates/agent-win/**'
+      - 'crates/agent-core/**'
+      - 'crates/shared/**'
+      - 'packaging/windows/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/windows-agent.yml'
+  workflow_dispatch:
+  release:
+    types: [created]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .
+
+      - name: Build Windows agent (release)
+        run: cargo build -p callmor-agent-win --target x86_64-pc-windows-msvc --release
+
+      - name: Package
+        shell: bash
+        run: |
+          VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+          DIST="callmor-agent-${VERSION}-windows-x64"
+          mkdir -p "dist/$DIST"
+          cp target/x86_64-pc-windows-msvc/release/callmor-agent.exe "dist/$DIST/"
+          cp packaging/windows/install.bat "dist/$DIST/"
+          cp packaging/windows/uninstall.bat "dist/$DIST/"
+          cp packaging/windows/agent.conf.template "dist/$DIST/"
+          cp packaging/windows/README.txt "dist/$DIST/"
+          cd dist && 7z a "${DIST}.zip" "$DIST"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: callmor-agent-windows
+          path: dist/*.zip
+
+      - name: Attach to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip

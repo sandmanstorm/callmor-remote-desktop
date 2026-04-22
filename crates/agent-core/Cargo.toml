@@ -1,0 +1,13 @@
+[package]
+name = "callmor-agent-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+callmor-shared = { path = "../shared" }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }

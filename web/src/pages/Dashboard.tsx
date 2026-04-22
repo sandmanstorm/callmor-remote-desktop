@@ -134,13 +134,28 @@ export default function Dashboard() {
           <h2 className="text-xl font-semibold text-white">Machines</h2>
           {isAdmin && (
             <div className="flex items-center gap-2">
-              <a
-                href={`${import.meta.env.VITE_API_URL || ''}/downloads/agent/linux/deb`}
-                className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 rounded text-sm font-medium"
-                title="Download Linux .deb installer"
-              >
-                <Download className="w-4 h-4" /> Download Agent (.deb)
-              </a>
+              <div className="relative group">
+                <button
+                  className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 rounded text-sm font-medium"
+                  title="Download agent installer"
+                >
+                  <Download className="w-4 h-4" /> Download Agent ▾
+                </button>
+                <div className="absolute right-0 mt-1 hidden group-hover:block bg-gray-900 border border-gray-700 rounded shadow-lg z-10 min-w-[180px]">
+                  <a
+                    href={`${import.meta.env.VITE_API_URL || ''}/downloads/agent/linux/deb`}
+                    className="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-800"
+                  >
+                    Linux (.deb)
+                  </a>
+                  <a
+                    href={`${import.meta.env.VITE_API_URL || ''}/downloads/agent/windows/zip`}
+                    className="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-800"
+                  >
+                    Windows (.zip)
+                  </a>
+                </div>
+              </div>
               <button
                 onClick={() => { setShowAddModal(true); setNewMachineName(''); setNewMachineResult(null); }}
                 className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-medium"
@@ -274,11 +289,21 @@ export default function Dashboard() {
                     <Copy className="w-4 h-4" />
                   </button>
                 </div>
-                <div className="bg-gray-800 border border-gray-700 rounded p-3 mb-4">
-                  <p className="text-xs text-gray-400 mb-1">Run the agent with:</p>
-                  <code className="text-xs text-blue-300">
-                    AGENT_TOKEN={newMachineResult.agent_token} MACHINE_ID={newMachineResult.id} callmor-agent
-                  </code>
+                <div className="bg-gray-800 border border-gray-700 rounded p-3 mb-4 space-y-3">
+                  <div>
+                    <p className="text-xs text-gray-400 mb-1">Linux — edit <code>/etc/callmor-agent/agent.conf</code>:</p>
+                    <code className="text-xs text-blue-300 block">
+                      MACHINE_ID={newMachineResult.id}<br/>
+                      AGENT_TOKEN={newMachineResult.agent_token}
+                    </code>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-400 mb-1">Windows — edit <code>C:\ProgramData\Callmor\agent.conf</code>:</p>
+                    <code className="text-xs text-blue-300 block">
+                      MACHINE_ID={newMachineResult.id}<br/>
+                      AGENT_TOKEN={newMachineResult.agent_token}
+                    </code>
+                  </div>
                 </div>
                 <div className="flex justify-end">
                   <button onClick={() => setShowAddModal(false)} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded">

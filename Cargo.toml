@@ -5,6 +5,8 @@ members = [
     "crates/relay",
     "crates/api",
     "crates/agent",
+    "crates/agent-core",
+    "crates/agent-win",
 ]
 
 [workspace.package]

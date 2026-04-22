@@ -110,6 +110,7 @@ async fn main() -> Result<()> {
         .route("/sessions/active", get(routes::sessions::list_active_sessions))
         // Downloads
         .route("/downloads/agent/linux/deb", get(routes::downloads::download_agent_deb))
+        .route("/downloads/agent/windows/zip", get(routes::downloads::download_agent_windows))
         // Agent (agent-token auth, not user JWT)
         .route("/agent/heartbeat", post(routes::agent::heartbeat))
         // Admin
