@@ -117,6 +117,7 @@ async fn main() -> Result<()> {
         .route("/machines/{id}/access", get(routes::machines::list_machine_access))
         .route("/machines/{id}/access", post(routes::machines::grant_machine_access))
         .route("/machines/{id}/access/{user_id}", delete(routes::machines::revoke_machine_access))
+        .route("/machines/{id}/rd-connect", post(routes::machines::rd_connect))
         // Users
         .route("/users", get(routes::users::list_users))
         .route("/users/{id}", patch(routes::users::update_user))

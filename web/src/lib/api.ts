@@ -101,12 +101,27 @@ export interface Machine {
   is_online: boolean;
   access_mode: string;
   created_at: string;
+  rustdesk_id: string | null;
+  rustdesk_password: string | null;
+  connection_type: 'rustdesk' | 'webrtc_legacy';
+}
+
+export interface CreateMachineRequest {
+  name: string;
+  rustdesk_id?: string;
+  rustdesk_password?: string;
 }
 
 export interface CreateMachineResponse {
   id: string;
   name: string;
   agent_token: string;
+}
+
+export interface RdConnectResponse {
+  rustdesk_id: string;
+  password: string;
+  launch_uri: string;
 }
 
 export const authApi = {
@@ -123,8 +138,14 @@ export const authApi = {
 
 export const machinesApi = {
   list: () => api.get<Machine[]>('/machines'),
-  create: (name: string) => api.post<CreateMachineResponse>('/machines', { name }),
+  get: (id: string) => api.get<Machine>(`/machines/${id}`),
+  create: (data: CreateMachineRequest) =>
+    api.post<CreateMachineResponse>('/machines', data),
+  update: (id: string, patch: Partial<CreateMachineRequest>) =>
+    api.patch<Machine>(`/machines/${id}`, patch),
   delete: (id: string) => api.delete(`/machines/${id}`),
+  rdConnect: (id: string) =>
+    api.post<RdConnectResponse>(`/machines/${id}/rd-connect`),
 };
 
 export interface SessionResponse {

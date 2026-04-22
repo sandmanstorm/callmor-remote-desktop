@@ -161,15 +161,28 @@ export default function RustdeskSetup() {
         <Step
           n={5}
           icon={<ArrowRight className="w-5 h-5 text-purple-400" />}
-          title="Connect"
+          title="Add to portal"
           body={
-            <p className="text-gray-400">
-              On another computer that also has the Callmor client installed,
-              type the 9-digit ID of the machine you want to control and press
-              Connect. The host is prompted for its one-time password (or a
-              permanent password if set), and you take control of the remote
-              desktop.
-            </p>
+            <>
+              <p className="text-gray-400 mb-3">
+                This is the primary flow for tenant-managed machines. Go to your{' '}
+                <Link to="/app" className="text-blue-400 hover:text-blue-300">
+                  Dashboard at /app
+                </Link>
+                , click <span className="text-white font-medium">Add Machine</span>,
+                paste the 9-digit ID and the permanent password you set on the
+                machine. From then on, click <span className="text-white font-medium">Connect</span>{' '}
+                any time to launch a remote session — no codes, no PINs, no
+                re-typing credentials.
+              </p>
+              <p className="text-gray-500 text-sm">
+                Tip: set a permanent password in RustDesk under{' '}
+                <span className="text-gray-300">
+                  Settings → Security → Unlock Security Settings → Permanent Password
+                </span>
+                . The portal stores it so launching takes one click.
+              </p>
+            </>
           }
           last
         />

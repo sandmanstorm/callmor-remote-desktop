@@ -49,6 +49,16 @@ pub struct Machine {
     pub is_online: bool,
     pub access_mode: String,
     pub created_at: DateTime<Utc>,
+    // RustDesk binding — for machines managed via the Callmor-RustDesk flow.
+    // `rustdesk_id` is the 9-digit ID the client shows; `rustdesk_password`
+    // is the permanent password the installing user set in RustDesk. We
+    // return the password only through the gated /machines/:id/rd-connect
+    // endpoint, not in bulk list responses, so viewers can't harvest it.
+    pub rustdesk_id: Option<String>,
+    #[serde(skip_serializing)]
+    pub rustdesk_password: Option<String>,
+    /// 'rustdesk' (new tenant machines) or 'webrtc_legacy' (old custom agent).
+    pub connection_type: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]

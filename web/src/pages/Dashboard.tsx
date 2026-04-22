@@ -2,8 +2,15 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { machinesApi, sessionsApi, machineAccessApi, usersApi, enrollmentApi, adhocApi, errMsg } from '../lib/api';
-import type { Machine, CreateMachineResponse, AccessUser, User } from '../lib/api';
-import { Monitor, Plus, Trash2, LogOut, Copy, Wifi, WifiOff, Download, Users, Eye, Settings, Lock, Globe, X, Shield, Activity, Film, RefreshCw, Key, Link2 } from 'lucide-react';
+import type { Machine, AccessUser, User } from '../lib/api';
+import { Monitor, Plus, Trash2, LogOut, Copy, Wifi, WifiOff, Download, Users, Eye, Settings, Lock, Globe, X, Shield, Activity, Film, RefreshCw, Key, Link2, ExternalLink, CheckCircle2 } from 'lucide-react';
+
+// Format "123456789" → "123 456 789"
+function formatRdId(id: string): string {
+  const digits = id.replace(/\D/g, '');
+  if (digits.length !== 9) return id;
+  return `${digits.slice(0, 3)} ${digits.slice(3, 6)} ${digits.slice(6, 9)}`;
+}
 
 export default function Dashboard() {
   const { user, logout } = useAuth();
@@ -12,7 +19,11 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [newMachineName, setNewMachineName] = useState('');
-  const [newMachineResult, setNewMachineResult] = useState<CreateMachineResponse | null>(null);
+  const [newMachineRdId, setNewMachineRdId] = useState('');
+  const [newMachinePassword, setNewMachinePassword] = useState('');
+  const [addingMachine, setAddingMachine] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
   const [accessModal, setAccessModal] = useState<Machine | null>(null);
   const [accessUsers, setAccessUsers] = useState<AccessUser[]>([]);
   const [orgUsers, setOrgUsers] = useState<User[]>([]);
@@ -22,6 +33,11 @@ export default function Dashboard() {
   const [showTokenModal, setShowTokenModal] = useState(false);
   const [enrollmentToken, setEnrollmentToken] = useState<string | null>(null);
   const [rotating, setRotating] = useState(false);
+
+  const showToast = (msg: string, ms = 3000) => {
+    setToast(msg);
+    window.setTimeout(() => setToast(null), ms);
+  };
 
   const openTokenModal = async () => {
     setShowTokenModal(true);
@@ -96,14 +112,47 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, []);
 
+  const openAddModal = () => {
+    setShowAddModal(true);
+    setNewMachineName('');
+    setNewMachineRdId('');
+    setNewMachinePassword('');
+    setAddError(null);
+  };
+
   const handleAddMachine = async () => {
-    if (!newMachineName.trim()) return;
+    setAddError(null);
+    const name = newMachineName.trim();
+    const rawId = newMachineRdId.replace(/\D/g, '');
+    const password = newMachinePassword;
+
+    if (!name) {
+      setAddError('Display name is required');
+      return;
+    }
+    if (rawId.length !== 9) {
+      setAddError('RustDesk ID must be exactly 9 digits');
+      return;
+    }
+    if (!password) {
+      setAddError('Permanent password is required');
+      return;
+    }
+
+    setAddingMachine(true);
     try {
-      const { data } = await machinesApi.create(newMachineName.trim());
-      setNewMachineResult(data);
-      fetchMachines();
+      await machinesApi.create({
+        name,
+        rustdesk_id: rawId,
+        rustdesk_password: password,
+      });
+      setShowAddModal(false);
+      await fetchMachines();
+      showToast('Machine added. Click Connect to launch remote session.');
     } catch (err: any) {
-      alert(errMsg(err, 'Failed to add machine'));
+      setAddError(errMsg(err, 'Failed to add machine'));
+    } finally {
+      setAddingMachine(false);
     }
   };
 
@@ -113,7 +162,26 @@ export default function Dashboard() {
     fetchMachines();
   };
 
-  const handleConnect = async (machine: Machine, permission: 'full_control' | 'view_only' = 'full_control') => {
+  // New RustDesk connect flow — launches rustdesk:// URI
+  const handleRdConnect = async (machine: Machine) => {
+    try {
+      const { data } = await machinesApi.rdConnect(machine.id);
+      showToast('Launching RustDesk…');
+      window.location.href = data.launch_uri;
+    } catch (err: any) {
+      const status = err?.response?.status;
+      if (status === 403) {
+        alert('Access denied: you do not have permission to connect to this machine.');
+      } else if (status === 404) {
+        alert('This machine has no RustDesk ID configured. Edit the machine to add one.');
+      } else {
+        alert(errMsg(err, 'Failed to launch RustDesk session'));
+      }
+    }
+  };
+
+  // Legacy WebRTC connect flow (for webrtc_legacy machines)
+  const handleLegacyConnect = async (machine: Machine, permission: 'full_control' | 'view_only' = 'full_control') => {
     try {
       const { data } = await sessionsApi.create(machine.id, permission);
       const params = new URLSearchParams({
@@ -138,7 +206,7 @@ export default function Dashboard() {
       ]);
       setAccessUsers(access.data);
       setOrgUsers(users.data);
-    } catch {}
+    } catch { /* ignore */ }
   };
 
   const handleToggleAccessMode = async () => {
@@ -166,6 +234,11 @@ export default function Dashboard() {
   const handleLogout = () => {
     logout();
     navigate('/login');
+  };
+
+  const copyRdId = (id: string) => {
+    navigator.clipboard.writeText(id);
+    showToast('ID copied');
   };
 
   return (
@@ -202,6 +275,14 @@ export default function Dashboard() {
         </div>
       </header>
 
+      {/* Toast */}
+      {toast && (
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-gray-800 border border-gray-700 text-white text-sm px-4 py-2 rounded shadow-lg flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 text-green-400" />
+          {toast}
+        </div>
+      )}
+
       {/* Content */}
       <main className="max-w-5xl mx-auto px-6 py-8">
         <div className="flex items-center justify-between mb-6">
@@ -211,11 +292,11 @@ export default function Dashboard() {
               <div className="relative group">
                 <button
                   className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 rounded text-sm font-medium"
-                  title="Download agent installer"
+                  title="Download RustDesk client installer"
                 >
-                  <Download className="w-4 h-4" /> Download Agent ▾
+                  <Download className="w-4 h-4" /> Download ▾
                 </button>
-                <div className="absolute right-0 mt-1 hidden group-hover:block bg-gray-900 border border-gray-700 rounded shadow-lg z-10 min-w-[240px]">
+                <div className="absolute right-0 mt-1 hidden group-hover:block bg-gray-900 border border-gray-700 rounded shadow-lg z-10 min-w-[280px]">
                   {(() => {
                     const base = import.meta.env.VITE_API_URL || '';
                     const t = localStorage.getItem('access_token') || '';
@@ -223,25 +304,34 @@ export default function Dashboard() {
                     return (
                       <>
                         <a
-                          href={`${base}/downloads/agent/windows${qs}`}
+                          href={`${base}/downloads/rustdesk/windows${qs}`}
+                          className="block px-4 py-2 text-sm text-white hover:bg-gray-800 border-b border-gray-800"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs px-1.5 py-0.5 rounded bg-purple-900/50 border border-purple-700 text-purple-300 uppercase tracking-wide">Recommended</span>
+                          </div>
+                          <div className="font-medium mt-1">Callmor-RustDesk (Windows)</div>
+                          <div className="text-xs text-gray-500">Pre-configured installer</div>
+                        </a>
+                        <a
+                          href={`${base}/downloads/rustdesk/macos${qs}`}
                           className="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-800 border-b border-gray-800"
                         >
-                          <div className="font-medium">Windows</div>
-                          <div className="text-xs text-gray-500">callmor-agent-setup.exe</div>
+                          <div className="font-medium">Callmor-RustDesk (macOS)</div>
+                          <div className="text-xs text-gray-500">Pre-configured installer</div>
                         </a>
-                        <div
-                          className="block px-4 py-2 text-sm text-gray-500 border-b border-gray-800 cursor-not-allowed"
-                          title="Coming soon — use Windows or Linux for now"
-                        >
-                          <div className="font-medium">macOS <span className="text-xs text-gray-600">(coming soon)</span></div>
-                          <div className="text-xs text-gray-600">callmor-agent.pkg</div>
-                        </div>
                         <a
-                          href={`${base}/downloads/agent/linux${qs}`}
-                          className="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-800"
+                          href={`${base}/downloads/rustdesk/linux${qs}`}
+                          className="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-800 border-b border-gray-800"
                         >
-                          <div className="font-medium">Linux</div>
-                          <div className="text-xs text-gray-500">callmor-agent.deb</div>
+                          <div className="font-medium">Callmor-RustDesk (Linux)</div>
+                          <div className="text-xs text-gray-500">Pre-configured installer</div>
+                        </a>
+                        <a
+                          href={`${base}/downloads/agent/public/windows`}
+                          className="block px-4 py-2 text-xs text-gray-500 hover:bg-gray-800 hover:text-gray-400"
+                        >
+                          Legacy Callmor Agent (Windows)
                         </a>
                       </>
                     );
@@ -265,7 +355,7 @@ export default function Dashboard() {
                 <Link2 className="w-4 h-4" /> Claim
               </button>
               <button
-                onClick={() => { setShowAddModal(true); setNewMachineName(''); setNewMachineResult(null); }}
+                onClick={openAddModal}
                 className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-medium"
               >
                 <Plus className="w-4 h-4" /> Add Machine
@@ -277,77 +367,172 @@ export default function Dashboard() {
         {loading ? (
           <p className="text-gray-500">Loading...</p>
         ) : machines.length === 0 ? (
-          <div className="bg-gray-900 border border-gray-800 rounded-lg p-12 text-center">
-            <Monitor className="w-12 h-12 text-gray-600 mx-auto mb-4" />
-            <p className="text-gray-400 mb-2">No machines registered</p>
-            <p className="text-sm text-gray-600">Add a machine to get started with remote access</p>
+          <div className="bg-gray-900 border border-gray-800 rounded-lg p-10 max-w-2xl mx-auto">
+            <div className="text-center mb-8">
+              <Monitor className="w-12 h-12 text-gray-600 mx-auto mb-3" />
+              <h3 className="text-lg font-semibold text-white mb-1">Get started with remote access</h3>
+              <p className="text-sm text-gray-500">Three steps and you're connected.</p>
+            </div>
+            <ol className="space-y-5">
+              <li className="flex gap-4">
+                <div className="w-8 h-8 rounded-full bg-blue-600 text-white font-semibold flex items-center justify-center text-sm flex-shrink-0">1</div>
+                <div className="flex-1">
+                  <h4 className="text-white font-medium mb-1">Install Callmor-RustDesk</h4>
+                  <p className="text-sm text-gray-400 mb-3">
+                    Run the pre-configured installer on every machine you want to reach.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <a
+                      href="/rustdesk-setup"
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded text-sm font-medium"
+                    >
+                      <Download className="w-4 h-4" /> Download &amp; setup guide
+                    </a>
+                    <a
+                      href="/rustdesk-setup"
+                      className="text-xs text-gray-500 hover:text-gray-300 inline-flex items-center gap-1"
+                    >
+                      View all platforms <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+                </div>
+              </li>
+              <li className="flex gap-4">
+                <div className="w-8 h-8 rounded-full bg-blue-600 text-white font-semibold flex items-center justify-center text-sm flex-shrink-0">2</div>
+                <div className="flex-1">
+                  <h4 className="text-white font-medium mb-1">Note your 9-digit ID</h4>
+                  <p className="text-sm text-gray-400">
+                    After install, open Callmor-RustDesk on the machine. The main window
+                    shows a 9-digit ID like <span className="font-mono text-gray-200">123 456 789</span>.
+                    Then set a permanent password under Settings → Security → Unlock Security Settings → Permanent Password.
+                  </p>
+                </div>
+              </li>
+              <li className="flex gap-4">
+                <div className="w-8 h-8 rounded-full bg-blue-600 text-white font-semibold flex items-center justify-center text-sm flex-shrink-0">3</div>
+                <div className="flex-1">
+                  <h4 className="text-white font-medium mb-1">Add Machine</h4>
+                  <p className="text-sm text-gray-400 mb-3">
+                    Enter the ID and permanent password here. After that, click Connect any time to launch a remote session.
+                  </p>
+                  {isAdmin ? (
+                    <button
+                      onClick={openAddModal}
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-medium"
+                    >
+                      <Plus className="w-4 h-4" /> Add Machine
+                    </button>
+                  ) : (
+                    <p className="text-xs text-gray-500">
+                      Only admins or owners can add machines. Ask your administrator to invite the machine.
+                    </p>
+                  )}
+                </div>
+              </li>
+            </ol>
           </div>
         ) : (
           <div className="grid gap-3">
-            {machines.map((m) => (
-              <div
-                key={m.id}
-                className="bg-gray-900 border border-gray-800 rounded-lg p-4 flex items-center justify-between hover:border-gray-700"
-              >
-                <div className="flex items-center gap-4">
-                  <div className={`p-2 rounded ${m.is_online ? 'bg-green-900/30' : 'bg-gray-800'}`}>
-                    {m.is_online ? (
-                      <Wifi className="w-5 h-5 text-green-400" />
-                    ) : (
-                      <WifiOff className="w-5 h-5 text-gray-500" />
-                    )}
-                  </div>
-                  <div>
-                    <div className="text-white font-medium">{m.name}</div>
-                    <div className="text-sm text-gray-500">
-                      {m.hostname || 'No hostname'} {m.os ? `(${m.os})` : ''}
-                      {' '}&middot;{' '}
-                      {m.last_seen ? `Last seen ${new Date(m.last_seen).toLocaleString()}` : 'Never connected'}
+            {machines.map((m) => {
+              const isLegacy = m.connection_type === 'webrtc_legacy' || !m.rustdesk_id;
+              return (
+                <div
+                  key={m.id}
+                  className="bg-gray-900 border border-gray-800 rounded-lg p-4 flex items-center justify-between hover:border-gray-700"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className={`p-2 rounded ${m.is_online ? 'bg-green-900/30' : 'bg-gray-800'}`}>
+                      {m.is_online ? (
+                        <Wifi className="w-5 h-5 text-green-400" />
+                      ) : (
+                        <WifiOff className="w-5 h-5 text-gray-500" />
+                      )}
+                    </div>
+                    <div>
+                      <div className="text-white font-medium flex items-center gap-2 flex-wrap">
+                        <span>{m.name}</span>
+                        <span className={`inline-block w-2 h-2 rounded-full ${m.is_online ? 'bg-green-400' : 'bg-gray-500'}`} title={m.is_online ? 'Online' : 'Offline'} />
+                        {!isLegacy && m.rustdesk_id && (
+                          <span className="flex items-center gap-1 text-xs font-mono text-gray-400 bg-gray-800 border border-gray-700 rounded px-2 py-0.5">
+                            {formatRdId(m.rustdesk_id)}
+                            <button
+                              onClick={() => copyRdId(m.rustdesk_id!)}
+                              className="text-gray-500 hover:text-white"
+                              title="Copy RustDesk ID"
+                            >
+                              <Copy className="w-3 h-3" />
+                            </button>
+                          </span>
+                        )}
+                        {isLegacy && (
+                          <span className="text-[10px] uppercase tracking-wide bg-amber-950/60 border border-amber-800/70 text-amber-300 rounded px-1.5 py-0.5">
+                            legacy
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-sm text-gray-500">
+                        {m.hostname || 'No hostname'} {m.os ? `(${m.os})` : ''}
+                        {' '}&middot;{' '}
+                        {m.last_seen ? `Last seen ${new Date(m.last_seen).toLocaleString()}` : 'Never connected'}
+                      </div>
                     </div>
                   </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  {m.access_mode === 'restricted' && (
-                    <span className="text-xs text-yellow-500 flex items-center gap-1" title="Restricted access">
-                      <Lock className="w-3 h-3" /> Restricted
-                    </span>
-                  )}
-                  <button
-                    onClick={() => handleConnect(m, 'view_only')}
-                    disabled={!m.is_online}
-                    className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-30 text-gray-300 rounded text-sm flex items-center gap-1"
-                    title="View only"
-                  >
-                    <Eye className="w-4 h-4" /> View
-                  </button>
-                  <button
-                    onClick={() => handleConnect(m, 'full_control')}
-                    disabled={!m.is_online}
-                    className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-30 disabled:cursor-not-allowed text-white rounded text-sm"
-                  >
-                    Connect
-                  </button>
-                  {isAdmin && (
-                    <>
+                  <div className="flex items-center gap-2">
+                    {m.access_mode === 'restricted' && (
+                      <span className="text-xs text-yellow-500 flex items-center gap-1" title="Restricted access">
+                        <Lock className="w-3 h-3" /> Restricted
+                      </span>
+                    )}
+                    {isLegacy ? (
+                      <>
+                        <button
+                          onClick={() => handleLegacyConnect(m, 'view_only')}
+                          disabled={!m.is_online}
+                          className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-30 text-gray-300 rounded text-sm flex items-center gap-1"
+                          title="View only (legacy WebRTC)"
+                        >
+                          <Eye className="w-4 h-4" /> View
+                        </button>
+                        <button
+                          onClick={() => handleLegacyConnect(m, 'full_control')}
+                          disabled={!m.is_online}
+                          className="px-4 py-1.5 bg-amber-700 hover:bg-amber-600 disabled:opacity-30 disabled:cursor-not-allowed text-white rounded text-sm"
+                          title="Legacy WebRTC session (opens in browser)"
+                        >
+                          Legacy Connect
+                        </button>
+                      </>
+                    ) : (
                       <button
-                        onClick={() => openAccessModal(m)}
-                        className="p-1.5 text-gray-500 hover:text-white"
-                        title="Access control"
+                        onClick={() => handleRdConnect(m)}
+                        className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
+                        title="Launch Callmor-RustDesk"
                       >
-                        <Settings className="w-4 h-4" />
+                        Connect
                       </button>
-                      <button
-                        onClick={() => handleDeleteMachine(m.id, m.name)}
-                        className="p-1.5 text-gray-500 hover:text-red-400"
-                        title="Delete"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </>
-                  )}
+                    )}
+                    {isAdmin && (
+                      <>
+                        <button
+                          onClick={() => openAccessModal(m)}
+                          className="p-1.5 text-gray-500 hover:text-white"
+                          title="Access control"
+                        >
+                          <Settings className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteMachine(m.id, m.name)}
+                          className="p-1.5 text-gray-500 hover:text-red-400"
+                          title="Delete"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </main>
@@ -356,70 +541,85 @@ export default function Dashboard() {
       {showAddModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-gray-900 border border-gray-700 rounded-lg p-6 w-full max-w-md">
-            {!newMachineResult ? (
-              <>
-                <h3 className="text-lg font-semibold text-white mb-4">Add Machine</h3>
-                <div className="mb-4">
-                  <label className="block text-sm text-gray-400 mb-1">Machine Name</label>
-                  <input
-                    type="text"
-                    value={newMachineName}
-                    onChange={(e) => setNewMachineName(e.target.value)}
-                    placeholder="e.g., Office PC, Dev Server"
-                    className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
-                    onKeyDown={(e) => e.key === 'Enter' && handleAddMachine()}
-                    autoFocus
-                  />
-                </div>
-                <div className="flex gap-2 justify-end">
-                  <button onClick={() => setShowAddModal(false)} className="px-4 py-2 text-gray-400 hover:text-white">
-                    Cancel
-                  </button>
-                  <button onClick={handleAddMachine} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded">
-                    Create
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <h3 className="text-lg font-semibold text-white mb-2">Machine Created</h3>
-                <p className="text-sm text-gray-400 mb-4">
-                  Copy this agent token and use it to configure the agent on <strong>{newMachineResult.name}</strong>.
-                  This token is shown only once.
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white">Add Machine</h3>
+              <button onClick={() => setShowAddModal(false)} className="text-gray-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Display name</label>
+                <input
+                  type="text"
+                  value={newMachineName}
+                  onChange={(e) => setNewMachineName(e.target.value)}
+                  placeholder="e.g., Office PC, Dev Server"
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">RustDesk ID</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={newMachineRdId}
+                  onChange={(e) => setNewMachineRdId(e.target.value)}
+                  placeholder="123 456 789"
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white placeholder-gray-500 font-mono tracking-widest focus:outline-none focus:border-blue-500"
+                  maxLength={13}
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Install Callmor-RustDesk on the machine, open it, and copy the ID shown in the main window.
                 </p>
-                <div className="bg-gray-800 border border-gray-700 rounded p-3 mb-4 flex items-center gap-2">
-                  <code className="text-green-400 text-xs break-all flex-1">{newMachineResult.agent_token}</code>
-                  <button
-                    onClick={() => navigator.clipboard.writeText(newMachineResult.agent_token)}
-                    className="p-1 text-gray-400 hover:text-white shrink-0"
-                    title="Copy"
-                  >
-                    <Copy className="w-4 h-4" />
-                  </button>
-                </div>
-                <div className="bg-gray-800 border border-gray-700 rounded p-3 mb-4 space-y-3">
-                  <div>
-                    <p className="text-xs text-gray-400 mb-1">Linux — edit <code>/etc/callmor-agent/agent.conf</code>:</p>
-                    <code className="text-xs text-blue-300 block">
-                      MACHINE_ID={newMachineResult.id}<br/>
-                      AGENT_TOKEN={newMachineResult.agent_token}
-                    </code>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-400 mb-1">Windows — edit <code>C:\ProgramData\Callmor\agent.conf</code>:</p>
-                    <code className="text-xs text-blue-300 block">
-                      MACHINE_ID={newMachineResult.id}<br/>
-                      AGENT_TOKEN={newMachineResult.agent_token}
-                    </code>
-                  </div>
-                </div>
-                <div className="flex justify-end">
-                  <button onClick={() => setShowAddModal(false)} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded">
-                    Done
-                  </button>
-                </div>
-              </>
+              </div>
+
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Permanent password</label>
+                <input
+                  type="password"
+                  value={newMachinePassword}
+                  onChange={(e) => setNewMachinePassword(e.target.value)}
+                  placeholder="The password set in RustDesk"
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Set a permanent password in RustDesk: Settings → Security → Unlock Security Settings → Permanent Password.
+                </p>
+              </div>
+
+              <div>
+                <a href="/rustdesk-setup" className="text-xs text-blue-400 hover:text-blue-300 inline-flex items-center gap-1">
+                  Don't have RustDesk installed? <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+            </div>
+
+            {addError && (
+              <div className="mt-4 p-3 bg-red-950/50 border border-red-900 rounded text-sm text-red-300">
+                {addError}
+              </div>
             )}
+
+            <div className="flex gap-2 justify-end mt-5">
+              <button
+                onClick={() => setShowAddModal(false)}
+                className="px-4 py-2 text-gray-400 hover:text-white"
+                disabled={addingMachine}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddMachine}
+                disabled={addingMachine}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded"
+              >
+                {addingMachine ? 'Adding…' : 'Add Machine'}
+              </button>
+            </div>
           </div>
         </div>
       )}

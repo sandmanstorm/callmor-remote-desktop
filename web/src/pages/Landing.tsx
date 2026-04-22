@@ -95,32 +95,32 @@ export default function Landing() {
           </div>
           <div className="grid md:grid-cols-2 gap-5">
             <ModeCard
+              accent="purple"
+              icon={<Server className="w-5 h-5 text-purple-400" />}
+              title="For teams managing machines"
+              tagline="Persistent access. Centralized control."
+              body="Install on each computer, manage from one dashboard, connect in one click. Access control per user. Session auditing built in."
+              bullets={[
+                'Permanent 9-digit ID per machine',
+                'Per-user access control and audit log',
+                'One-click launch from the dashboard',
+              ]}
+              ctaLabel="Create organization"
+              ctaTo="/register"
+            />
+            <ModeCard
               accent="blue"
               icon={<Zap className="w-5 h-5 text-blue-400" />}
-              title="Quick Connect"
-              tagline="Works immediately. No setup."
+              title="For one-off support"
+              tagline="Works immediately. No account."
               body="One click on the host, a code and PIN appear, share them, the other side connects in any browser. Perfect for ad-hoc support."
               bullets={[
                 'One-click portable agent',
                 'Browser-based viewer',
-                'No router config',
+                'No router config, no signup',
               ]}
               ctaLabel="Connect with a code"
               ctaTo="/connect"
-            />
-            <ModeCard
-              accent="purple"
-              icon={<Server className="w-5 h-5 text-purple-400" />}
-              title="RustDesk Mode"
-              tagline="Full-featured. Persistent machines."
-              body="Install the Callmor client once per computer and reach it forever by its 9-digit ID. Full streaming, file transfer, 2FA. Requires port forwarding on the host network."
-              bullets={[
-                'Permanent 9-digit ID per machine',
-                'File transfer, 2FA, recording',
-                'Self-hosted on Callmor infra',
-              ]}
-              ctaLabel="See setup guide"
-              ctaTo="/rustdesk-setup"
             />
           </div>
         </div>
