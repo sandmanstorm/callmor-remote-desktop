@@ -295,9 +295,15 @@ fn capture_loop(
     let target_fps = 30u64;
     let frame_duration = std::time::Duration::from_millis(1000 / target_fps);
 
+    // Periodic diagnostic so we can see frames flowing.
+    let mut frames_sent: u64 = 0;
+    let mut bytes_sent: u64 = 0;
+    let mut empty_frames: u64 = 0;
+    let mut last_log = std::time::Instant::now();
+
     loop {
         if stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
-            info!("Capture loop stopping (session ended)");
+            info!("Capture loop stopping (session ended, sent {frames_sent} frames / {bytes_sent} bytes)");
             break Ok(());
         }
         let start = std::time::Instant::now();
@@ -313,6 +319,7 @@ fn capture_loop(
                 bitstream.write(&mut nals).ok();
 
                 if !nals.is_empty() {
+                    let size = nals.len();
                     let sample = webrtc::media::Sample {
                         data: Bytes::from(nals),
                         duration: frame_duration,
@@ -322,6 +329,18 @@ fn capture_loop(
                     tokio::runtime::Handle::current().block_on(async move {
                         let _ = track.write_sample(&sample).await;
                     });
+                    frames_sent += 1;
+                    bytes_sent += size as u64;
+                    if frames_sent == 1 {
+                        info!("First encoded frame sent ({size} bytes)");
+                    }
+                } else {
+                    empty_frames += 1;
+                }
+
+                if last_log.elapsed() >= std::time::Duration::from_secs(3) {
+                    info!("Video: {frames_sent} frames / {bytes_sent} bytes sent, {empty_frames} empty encodes");
+                    last_log = std::time::Instant::now();
                 }
             }
             Ok(None) => { /* no new frame */ }

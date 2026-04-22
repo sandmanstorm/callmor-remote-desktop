@@ -248,6 +248,8 @@
 
     function cleanup() {
       if (window.readyInterval) { clearInterval(window.readyInterval); window.readyInterval = null; }
+      if (window.statsInterval) { clearInterval(window.statsInterval); window.statsInterval = null; }
+      window._lastStats = null;
       if (pc) { pc.close(); pc = null; }
       if (ws) {
         try { ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null; } catch {}
@@ -340,7 +342,48 @@
         const video = document.getElementById('remoteVideo');
         video.srcObject = e.streams[0] || new MediaStream([e.track]);
         document.getElementById('placeholder').style.display = 'none';
-        video.play().catch(() => {});
+
+        // Make decoder state visible so we can tell "frames are decoding"
+        // from "stream connected but nothing arrives".
+        video.addEventListener('loadedmetadata', () => {
+          log(`Video metadata loaded: ${video.videoWidth}x${video.videoHeight}`, 'ok');
+        }, { once: true });
+        video.addEventListener('playing', () => log('Video element playing', 'ok'), { once: true });
+        video.addEventListener('error', () => log(`Video error: ${video.error?.message || 'unknown'}`, 'err'));
+
+        video.play().then(() => {
+          log('video.play() resolved', 'ok');
+        }).catch((err) => {
+          log(`video.play() rejected: ${err.name}: ${err.message}. Click the video to unblock.`, 'err');
+          // Add a click-to-play overlay
+          document.getElementById('placeholder').textContent = 'Click to start video';
+          document.getElementById('placeholder').style.display = '';
+          document.getElementById('placeholder').style.cursor = 'pointer';
+          document.getElementById('placeholder').onclick = () => {
+            video.play().then(() => {
+              document.getElementById('placeholder').style.display = 'none';
+            });
+          };
+        });
+
+        // Poll inbound RTP stats so we know if packets/frames are arriving.
+        window.statsInterval = setInterval(async () => {
+          if (!pc) return;
+          try {
+            const stats = await pc.getStats(e.track);
+            stats.forEach((report) => {
+              if (report.type === 'inbound-rtp' && report.kind === 'video') {
+                if (!window._lastStats) window._lastStats = { bytes: 0, frames: 0 };
+                const dBytes = report.bytesReceived - window._lastStats.bytes;
+                const dFrames = (report.framesDecoded || 0) - window._lastStats.frames;
+                window._lastStats = { bytes: report.bytesReceived, frames: report.framesDecoded || 0 };
+                log(`RX: +${dBytes} bytes, +${dFrames} frames decoded (total: ${report.framesDecoded || 0}, ${report.bytesReceived} bytes, ${report.packetsLost || 0} lost)`);
+              }
+            });
+          } catch (err) {
+            log(`stats err: ${err.message}`, 'err');
+          }
+        }, 3000);
         // Focus video for keyboard capture
         video.focus();
       };
