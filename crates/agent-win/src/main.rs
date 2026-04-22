@@ -21,11 +21,34 @@ async fn main() -> Result<()> {
         .map(PathBuf::from)
         .unwrap_or_else(|_| default_config_path());
 
-    let config = match AgentConfig::load(Some(&config_path)) {
-        Ok(c) => c,
-        Err(e) => {
-            error!("Failed to load config: {e}");
-            error!("Edit {} and set MACHINE_ID and AGENT_TOKEN from the Callmor dashboard.", config_path.display());
+    let config = match AgentConfig::load(Some(&config_path))? {
+        callmor_agent_core::config::ConfigLoad::Ready(c) => c,
+        callmor_agent_core::config::ConfigLoad::NeedsEnrollment {
+            enrollment_token,
+            api_url,
+            relay_url: _,
+            config_path,
+        } => {
+            info!("First run: enrolling with API {api_url}...");
+            let hostname = hostname().unwrap_or_else(|| "unknown".into());
+            let result = callmor_agent_core::enrollment::enroll(
+                &api_url,
+                &enrollment_token,
+                &hostname,
+                "windows",
+            )
+            .await?;
+            info!("Enrolled as machine {}", result.machine_id);
+            callmor_agent_core::enrollment::save_to_config(&config_path, &result)?;
+            AgentConfig {
+                relay_url: result.relay_url,
+                api_url: result.api_url,
+                machine_id: result.machine_id,
+                agent_token: result.agent_token,
+            }
+        }
+        callmor_agent_core::config::ConfigLoad::Missing => {
+            error!("No config at {}. Agent cannot start.", config_path.display());
             std::process::exit(1);
         }
     };

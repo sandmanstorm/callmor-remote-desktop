@@ -341,4 +341,13 @@ export const tenantSettingsApi = {
   update: (data: TenantSettings) => api.put('/tenant/settings', data),
 };
 
+export interface TenantEnrollmentInfo {
+  enrollment_token: string;
+}
+
+export const enrollmentApi = {
+  get: () => api.get<TenantEnrollmentInfo>('/tenant/enrollment'),
+  rotate: () => api.post<TenantEnrollmentInfo>('/tenant/enrollment/rotate'),
+};
+
 export default api;

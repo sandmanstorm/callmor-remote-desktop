@@ -1,6 +1,7 @@
 ; Callmor Remote Desktop Agent — NSIS installer
-; Single .exe that installs the agent, registers a Windows service,
-; and prompts the user for MACHINE_ID + AGENT_TOKEN.
+; Zero-config single .exe: installs the agent, registers a Windows service,
+; and starts it. The enrollment token is baked in at download time by the
+; API (byte-level replacement of the placeholder below).
 ;
 ; Build:   makensis -DVERSION=0.1.0 -DBIN=path/to/callmor-agent.exe installer.nsi
 ; Output:  callmor-agent-setup-<version>.exe
@@ -14,7 +15,6 @@
 !endif
 
 !include "MUI2.nsh"
-!include "LogicLib.nsh"
 
 Name "Callmor Remote Desktop Agent ${VERSION}"
 !ifndef OUTPUT
@@ -25,79 +25,27 @@ InstallDir "$PROGRAMFILES64\Callmor"
 RequestExecutionLevel admin
 Unicode true
 
-; --- UI ---
+; IMPORTANT: no compression so the placeholder token is byte-findable inside
+; the installer .exe and can be replaced at download time by the API.
+SetCompress off
+
+; --- UI (silent-ish: welcome + progress + finish only) ---
 !define MUI_ICON "${NSISDIR}\Contrib\Graphics\Icons\modern-install.ico"
 !define MUI_UNICON "${NSISDIR}\Contrib\Graphics\Icons\modern-uninstall.ico"
+!define MUI_WELCOMEPAGE_TITLE "Install Callmor Remote Desktop Agent"
+!define MUI_WELCOMEPAGE_TEXT "This will install and start the Callmor agent. No configuration is required — this installer was generated specifically for your Callmor tenant."
+!define MUI_FINISHPAGE_TITLE "Installation complete"
+!define MUI_FINISHPAGE_TEXT "The Callmor agent is running. You should see this machine appear on your Callmor dashboard within a few seconds."
+!define MUI_FINISHPAGE_LINK "Open your Callmor dashboard"
+!define MUI_FINISHPAGE_LINK_LOCATION "https://remote.callmor.ai"
 
 !insertmacro MUI_PAGE_WELCOME
-!insertmacro MUI_PAGE_DIRECTORY
-Page custom ConfigPage ConfigPageLeave
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
 !insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
 
 !insertmacro MUI_LANGUAGE "English"
-
-; --- Variables for config page ---
-Var Dialog
-Var MachineIdText
-Var AgentTokenText
-Var RelayUrlText
-Var ApiUrlText
-Var MachineId
-Var AgentToken
-Var RelayUrl
-Var ApiUrl
-
-; --- Custom page: configuration ---
-Function ConfigPage
-    !insertmacro MUI_HEADER_TEXT "Agent Configuration" "Paste your MACHINE_ID and AGENT_TOKEN from the Callmor dashboard."
-
-    nsDialogs::Create 1018
-    Pop $Dialog
-    ${If} $Dialog == error
-        Abort
-    ${EndIf}
-
-    ${NSD_CreateLabel} 0 0 100% 20u "Machine ID (UUID):"
-    Pop $0
-    ${NSD_CreateText} 0 20u 100% 14u ""
-    Pop $MachineIdText
-
-    ${NSD_CreateLabel} 0 42u 100% 20u "Agent Token (starts with cmt_):"
-    Pop $0
-    ${NSD_CreateText} 0 62u 100% 14u ""
-    Pop $AgentTokenText
-
-    ${NSD_CreateLabel} 0 84u 100% 20u "Relay URL:"
-    Pop $0
-    ${NSD_CreateText} 0 104u 100% 14u "wss://relay.callmor.ai"
-    Pop $RelayUrlText
-
-    ${NSD_CreateLabel} 0 126u 100% 20u "API URL:"
-    Pop $0
-    ${NSD_CreateText} 0 146u 100% 14u "https://api.callmor.ai"
-    Pop $ApiUrlText
-
-    nsDialogs::Show
-FunctionEnd
-
-Function ConfigPageLeave
-    ${NSD_GetText} $MachineIdText $MachineId
-    ${NSD_GetText} $AgentTokenText $AgentToken
-    ${NSD_GetText} $RelayUrlText $RelayUrl
-    ${NSD_GetText} $ApiUrlText $ApiUrl
-
-    ${If} $MachineId == ""
-        MessageBox MB_ICONEXCLAMATION "Machine ID is required."
-        Abort
-    ${EndIf}
-    ${If} $AgentToken == ""
-        MessageBox MB_ICONEXCLAMATION "Agent Token is required."
-        Abort
-    ${EndIf}
-FunctionEnd
 
 ; --- Install section ---
 Section "Install"
@@ -110,15 +58,17 @@ Section "Install"
     SetShellVarContext all
     CreateDirectory "$APPDATA\Callmor"
 
-    ; Write agent.conf with user-provided values
+    ; Write agent.conf with baked-in enrollment token.
+    ; The placeholder below is replaced byte-for-byte by the API at download
+    ; time with the tenant's real enrollment token (same length, 36 chars).
     FileOpen $0 "$APPDATA\Callmor\agent.conf" w
     FileWrite $0 "# Callmor Remote Desktop Agent Configuration (Windows)$\r$\n"
-    FileWrite $0 "# Edit these and restart the service: sc stop CallmorAgent & sc start CallmorAgent$\r$\n"
+    FileWrite $0 "# Auto-written by installer. Will be replaced by the agent on first run$\r$\n"
+    FileWrite $0 "# with the machine's permanent credentials.$\r$\n"
     FileWrite $0 "$\r$\n"
-    FileWrite $0 "RELAY_URL=$RelayUrl$\r$\n"
-    FileWrite $0 "API_URL=$ApiUrl$\r$\n"
-    FileWrite $0 "MACHINE_ID=$MachineId$\r$\n"
-    FileWrite $0 "AGENT_TOKEN=$AgentToken$\r$\n"
+    FileWrite $0 "RELAY_URL=wss://relay.callmor.ai$\r$\n"
+    FileWrite $0 "API_URL=https://api.callmor.ai$\r$\n"
+    FileWrite $0 "ENROLLMENT_TOKEN=cle_INSTALLER_TOKEN_PLACEHOLDER_XXXX$\r$\n"
     FileClose $0
 
     ; Register the Windows service
@@ -131,7 +81,7 @@ Section "Install"
     nsExec::Exec 'sc create CallmorAgent binPath= "\"$INSTDIR\callmor-agent.exe\"" start= auto DisplayName= "Callmor Remote Desktop Agent"'
     nsExec::Exec 'sc description CallmorAgent "Enables remote access via Callmor."'
 
-    ; Start the service
+    ; Start the service (agent will self-enroll on first run)
     nsExec::Exec 'sc start CallmorAgent'
 
     ; Uninstaller
@@ -160,7 +110,7 @@ Section "Uninstall"
     Delete "$INSTDIR\uninstall.exe"
     RMDir "$INSTDIR"
 
-    ; Config preserved by default (respects user edits). Uncomment to also remove:
+    ; Config preserved by default (holds machine credentials). Uncomment to purge:
     ; SetShellVarContext all
     ; Delete "$APPDATA\Callmor\agent.conf"
     ; RMDir "$APPDATA\Callmor"

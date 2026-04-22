@@ -1,11 +1,7 @@
 # Callmor Remote Desktop Agent Configuration
-# Edit these values and restart the service: sudo systemctl restart callmor-agent
+# Auto-written by installer. On first run the agent replaces this file
+# with permanent machine credentials (MACHINE_ID + AGENT_TOKEN).
 
-# Relay server URL (WebSocket)
 RELAY_URL=wss://relay.callmor.ai
-
-# Machine ID (from the dashboard when you added this machine)
-MACHINE_ID=CHANGE_ME
-
-# Agent token (from the dashboard — shown once when machine was added)
-AGENT_TOKEN=CHANGE_ME
+API_URL=https://api.callmor.ai
+ENROLLMENT_TOKEN=cle_INSTALLER_TOKEN_PLACEHOLDER_XXXX

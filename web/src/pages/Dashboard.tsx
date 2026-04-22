@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
-import { machinesApi, sessionsApi, machineAccessApi, usersApi, errMsg } from '../lib/api';
+import { machinesApi, sessionsApi, machineAccessApi, usersApi, enrollmentApi, errMsg } from '../lib/api';
 import type { Machine, CreateMachineResponse, AccessUser, User } from '../lib/api';
-import { Monitor, Plus, Trash2, LogOut, Copy, Wifi, WifiOff, Download, Users, Eye, Settings, Lock, Globe, X, Shield, Activity, Film } from 'lucide-react';
+import { Monitor, Plus, Trash2, LogOut, Copy, Wifi, WifiOff, Download, Users, Eye, Settings, Lock, Globe, X, Shield, Activity, Film, RefreshCw, Key } from 'lucide-react';
 
 export default function Dashboard() {
   const { user, logout } = useAuth();
@@ -18,6 +18,35 @@ export default function Dashboard() {
   const [orgUsers, setOrgUsers] = useState<User[]>([]);
 
   const isAdmin = user?.role === 'owner' || user?.role === 'admin';
+  const isOwner = user?.role === 'owner';
+  const [showTokenModal, setShowTokenModal] = useState(false);
+  const [enrollmentToken, setEnrollmentToken] = useState<string | null>(null);
+  const [rotating, setRotating] = useState(false);
+
+  const openTokenModal = async () => {
+    setShowTokenModal(true);
+    if (enrollmentToken) return;
+    try {
+      const { data } = await enrollmentApi.get();
+      setEnrollmentToken(data.enrollment_token);
+    } catch (err: any) {
+      alert(errMsg(err, 'Failed to load enrollment token'));
+      setShowTokenModal(false);
+    }
+  };
+
+  const rotateToken = async () => {
+    if (!confirm('Rotate enrollment token? The old token stops working for new installs immediately. Already-enrolled machines keep working.')) return;
+    setRotating(true);
+    try {
+      const { data } = await enrollmentApi.rotate();
+      setEnrollmentToken(data.enrollment_token);
+    } catch (err: any) {
+      alert(errMsg(err, 'Failed to rotate token'));
+    } finally {
+      setRotating(false);
+    }
+  };
 
   const fetchMachines = async () => {
     try {
@@ -155,30 +184,48 @@ export default function Dashboard() {
                 >
                   <Download className="w-4 h-4" /> Download Agent ▾
                 </button>
-                <div className="absolute right-0 mt-1 hidden group-hover:block bg-gray-900 border border-gray-700 rounded shadow-lg z-10 min-w-[220px]">
-                  <a
-                    href={`${import.meta.env.VITE_API_URL || ''}/downloads/agent/windows`}
-                    className="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-800 border-b border-gray-800"
-                  >
-                    <div className="font-medium">Windows</div>
-                    <div className="text-xs text-gray-500">callmor-agent-setup.exe</div>
-                  </a>
-                  <a
-                    href={`${import.meta.env.VITE_API_URL || ''}/downloads/agent/macos`}
-                    className="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-800 border-b border-gray-800"
-                  >
-                    <div className="font-medium">macOS</div>
-                    <div className="text-xs text-gray-500">callmor-agent.pkg</div>
-                  </a>
-                  <a
-                    href={`${import.meta.env.VITE_API_URL || ''}/downloads/agent/linux`}
-                    className="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-800"
-                  >
-                    <div className="font-medium">Linux</div>
-                    <div className="text-xs text-gray-500">callmor-agent.deb</div>
-                  </a>
+                <div className="absolute right-0 mt-1 hidden group-hover:block bg-gray-900 border border-gray-700 rounded shadow-lg z-10 min-w-[240px]">
+                  {(() => {
+                    const base = import.meta.env.VITE_API_URL || '';
+                    const t = localStorage.getItem('access_token') || '';
+                    const qs = `?token=${encodeURIComponent(t)}`;
+                    return (
+                      <>
+                        <a
+                          href={`${base}/downloads/agent/windows${qs}`}
+                          className="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-800 border-b border-gray-800"
+                        >
+                          <div className="font-medium">Windows</div>
+                          <div className="text-xs text-gray-500">callmor-agent-setup.exe</div>
+                        </a>
+                        <a
+                          href={`${base}/downloads/agent/macos${qs}`}
+                          className="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-800 border-b border-gray-800"
+                        >
+                          <div className="font-medium">macOS</div>
+                          <div className="text-xs text-gray-500">callmor-agent.pkg</div>
+                        </a>
+                        <a
+                          href={`${base}/downloads/agent/linux${qs}`}
+                          className="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-800"
+                        >
+                          <div className="font-medium">Linux</div>
+                          <div className="text-xs text-gray-500">callmor-agent.deb</div>
+                        </a>
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
+              {isOwner && (
+                <button
+                  onClick={openTokenModal}
+                  className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 rounded text-sm font-medium"
+                  title="View or rotate the enrollment token baked into your installers"
+                >
+                  <Key className="w-4 h-4" /> Token
+                </button>
+              )}
               <button
                 onClick={() => { setShowAddModal(true); setNewMachineName(''); setNewMachineResult(null); }}
                 className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-medium"
@@ -411,6 +458,61 @@ export default function Dashboard() {
             <div className="flex justify-end mt-4">
               <button onClick={() => setAccessModal(null)} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm">
                 Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showTokenModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-900 border border-gray-700 rounded-lg max-w-lg w-full p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                <Key className="w-5 h-5" /> Enrollment Token
+              </h3>
+              <button onClick={() => setShowTokenModal(false)} className="text-gray-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-sm text-gray-400 mb-4">
+              Every installer downloaded from this dashboard has your token baked in, so new machines enroll automatically with no setup. Treat this token like a password — anyone with it can enroll a machine into your tenant.
+            </p>
+
+            <div className="bg-gray-950 border border-gray-800 rounded px-3 py-2 flex items-center gap-2 mb-3">
+              <code className="text-sm text-gray-200 flex-1 break-all">
+                {enrollmentToken || 'Loading...'}
+              </code>
+              {enrollmentToken && (
+                <button
+                  onClick={() => { navigator.clipboard.writeText(enrollmentToken); }}
+                  className="text-gray-400 hover:text-white p-1"
+                  title="Copy"
+                >
+                  <Copy className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            <p className="text-xs text-gray-500 mb-4">
+              Rotating revokes the current token immediately. New installer downloads use the new token; already-enrolled machines keep working because they have their own permanent credentials.
+            </p>
+
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={rotateToken}
+                disabled={rotating || !enrollmentToken}
+                className="flex items-center gap-2 px-4 py-2 bg-red-700 hover:bg-red-600 disabled:opacity-50 text-white rounded text-sm font-medium"
+              >
+                <RefreshCw className={`w-4 h-4 ${rotating ? 'animate-spin' : ''}`} />
+                {rotating ? 'Rotating...' : 'Rotate'}
+              </button>
+              <button
+                onClick={() => setShowTokenModal(false)}
+                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded text-sm font-medium"
+              >
+                Close
               </button>
             </div>
           </div>

@@ -822,6 +822,7 @@ name = "callmor-agent"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "callmor-agent-core",
  "callmor-shared",
  "dotenvy",
  "futures-util",

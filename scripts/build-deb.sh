@@ -53,9 +53,10 @@ Description: Callmor Remote Desktop Agent
 Homepage: https://callmor.ai
 EOF
 
-# Build .deb
-echo "  Building .deb package..."
-dpkg-deb --root-owner-group --build "$PKG_DIR" "$OUTPUT" 2>&1
+# Build .deb (uncompressed so the API can byte-replace the enrollment token
+# placeholder inside control+data tarballs at download time).
+echo "  Building .deb package (uncompressed)..."
+dpkg-deb -Znone --root-owner-group --build "$PKG_DIR" "$OUTPUT" 2>&1
 
 # Show result
 SIZE=$(ls -lh "$OUTPUT" | awk '{print $5}')

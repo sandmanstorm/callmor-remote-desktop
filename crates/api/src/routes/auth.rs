@@ -119,14 +119,21 @@ pub async fn register(
 
     let password_hash = hash_password(&req.password)?;
 
-    // Create tenant
-    let tenant_id: Uuid =
-        sqlx::query_scalar("INSERT INTO tenants (name, slug) VALUES ($1, $2) RETURNING id")
-            .bind(&req.tenant_name)
-            .bind(&slug)
-            .fetch_one(&state.db)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+    // Create tenant with a fresh enrollment token
+    let enrollment_token = {
+        use rand::Rng;
+        let bytes: [u8; 16] = rand::rng().random();
+        format!("cle_{}", hex::encode(bytes))
+    };
+    let tenant_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO tenants (name, slug, enrollment_token) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(&req.tenant_name)
+    .bind(&slug)
+    .bind(&enrollment_token)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
     // Create user as owner
     let user_id: Uuid = sqlx::query_scalar(

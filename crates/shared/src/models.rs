@@ -8,6 +8,8 @@ pub struct Tenant {
     pub name: String,
     pub slug: String,
     pub recording_enabled: bool,
+    #[serde(skip_serializing)]
+    pub enrollment_token: String,
     pub created_at: DateTime<Utc>,
 }
 

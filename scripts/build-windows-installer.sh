@@ -26,7 +26,8 @@ if [ -f "$INSTALLER" ]; then
     SIZE=$(ls -lh "$INSTALLER" | awk '{print $5}')
     echo ""
     echo "Done: $INSTALLER ($SIZE)"
-    echo "Users download this single .exe, double-click, paste token, done."
+    echo "Single .exe with placeholder enrollment token — API injects the"
+    echo "tenant's real token at download time. Double-click installs and starts."
 else
     echo "NSIS build failed — installer not produced"
     exit 1

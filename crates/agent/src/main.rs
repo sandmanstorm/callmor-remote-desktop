@@ -21,54 +21,62 @@ enum OutgoingSignal {
     IceCandidate { candidate: String, sdp_mline_index: u32 },
 }
 
-/// Load config from /etc/callmor-agent/agent.conf if it exists.
-/// Format: KEY=VALUE lines (like a .env file). Env vars take precedence.
-fn load_config_file() {
-    let config_path = std::path::Path::new("/etc/callmor-agent/agent.conf");
-    if !config_path.exists() {
-        return;
-    }
-    if let Ok(contents) = std::fs::read_to_string(config_path) {
-        for line in contents.lines() {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-            if let Some((key, value)) = line.split_once('=') {
-                let key = key.trim();
-                let value = value.trim().trim_matches('"');
-                // Only set if not already in env (env vars take precedence)
-                if std::env::var(key).is_err() {
-                    // SAFETY: called before any threads are spawned (in main, before tokio runtime)
-                    unsafe { std::env::set_var(key, value) };
-                }
-            }
-        }
-    }
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Load config: /etc/callmor-agent/agent.conf → .env → env vars
-    load_config_file();
-    dotenvy::dotenv().ok();
-
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .init();
 
-    let relay_url = std::env::var("RELAY_URL").unwrap_or_else(|_| "ws://127.0.0.1:8080".into());
-    let api_url = std::env::var("API_URL").unwrap_or_else(|_| "https://api.callmor.ai".into());
-    let machine_id = std::env::var("MACHINE_ID").unwrap_or_else(|_| "agent-linux-1".into());
-    let agent_token = std::env::var("AGENT_TOKEN").unwrap_or_default();
-
     info!("Callmor Agent v{}", env!("CARGO_PKG_VERSION"));
-    info!("Relay: {relay_url}, API: {api_url}, Machine ID: {machine_id}");
 
-    if agent_token.is_empty() || agent_token == "CHANGE_ME" {
-        error!("AGENT_TOKEN is not configured. Set it in /etc/callmor-agent/agent.conf or env.");
-        std::process::exit(1);
-    }
+    // Load config with enrollment support
+    let config_path = std::path::PathBuf::from(
+        std::env::var("CALLMOR_CONFIG").unwrap_or_else(|_| "/etc/callmor-agent/agent.conf".into()),
+    );
+    dotenvy::dotenv().ok();
+
+    let config = match callmor_agent_core::config::AgentConfig::load(Some(&config_path))? {
+        callmor_agent_core::config::ConfigLoad::Ready(c) => c,
+        callmor_agent_core::config::ConfigLoad::NeedsEnrollment {
+            enrollment_token,
+            api_url,
+            relay_url: _,
+            config_path,
+        } => {
+            info!("First run: enrolling with API {api_url}...");
+            let hostname = std::process::Command::new("hostname")
+                .output()
+                .ok()
+                .and_then(|o| String::from_utf8(o.stdout).ok())
+                .map(|s| s.trim().to_string())
+                .unwrap_or_else(|| "unknown".into());
+            let result = callmor_agent_core::enrollment::enroll(
+                &api_url,
+                &enrollment_token,
+                &hostname,
+                "linux",
+            )
+            .await?;
+            info!("Enrolled as machine {}", result.machine_id);
+            callmor_agent_core::enrollment::save_to_config(&config_path, &result)?;
+            callmor_agent_core::config::AgentConfig {
+                relay_url: result.relay_url,
+                api_url: result.api_url,
+                machine_id: result.machine_id,
+                agent_token: result.agent_token,
+            }
+        }
+        callmor_agent_core::config::ConfigLoad::Missing => {
+            error!("No config found at {}. Agent cannot start.", config_path.display());
+            std::process::exit(1);
+        }
+    };
+
+    let relay_url = config.relay_url.clone();
+    let api_url = config.api_url.clone();
+    let machine_id = config.machine_id.clone();
+    let agent_token = config.agent_token.clone();
+    info!("Relay: {relay_url}, API: {api_url}, Machine ID: {machine_id}");
 
     gstreamer::init()?;
 

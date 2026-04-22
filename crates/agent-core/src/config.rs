@@ -1,4 +1,5 @@
-use std::path::Path;
+use anyhow::Result;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
 pub struct AgentConfig {
@@ -8,37 +9,68 @@ pub struct AgentConfig {
     pub agent_token: String,
 }
 
+/// What we found in the config: fully-enrolled, needs-enrollment, or broken.
+pub enum ConfigLoad {
+    /// Ready to run. machine_id + agent_token present.
+    Ready(AgentConfig),
+    /// First run: we have an enrollment_token but no machine credentials yet.
+    NeedsEnrollment {
+        enrollment_token: String,
+        api_url: String,
+        relay_url: String,
+        config_path: PathBuf,
+    },
+    /// Neither enrollment_token nor machine credentials set.
+    Missing,
+}
+
 impl AgentConfig {
-    /// Load config from env vars + optional config file.
-    ///
-    /// Order of precedence: env vars > config_file > defaults.
-    pub fn load(config_file: Option<&Path>) -> anyhow::Result<Self> {
-        // Load config file first (if present) — env vars take precedence
-        if let Some(path) = config_file {
-            if path.exists() {
-                load_kv_file(path)?;
-            }
+    /// Load config from env + optional config file.
+    /// Returns a ConfigLoad indicating what state we're in.
+    pub fn load(config_file: Option<&Path>) -> Result<ConfigLoad> {
+        let path = config_file.map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from(""));
+
+        if !path.as_os_str().is_empty() && path.exists() {
+            load_kv_file(&path)?;
         }
 
         let relay_url = std::env::var("RELAY_URL")
             .unwrap_or_else(|_| "wss://relay.callmor.ai".into());
         let api_url = std::env::var("API_URL")
             .unwrap_or_else(|_| "https://api.callmor.ai".into());
-        let machine_id = std::env::var("MACHINE_ID")
-            .map_err(|_| anyhow::anyhow!("MACHINE_ID not set (edit config file or env)"))?;
-        let agent_token = std::env::var("AGENT_TOKEN")
-            .map_err(|_| anyhow::anyhow!("AGENT_TOKEN not set (edit config file or env)"))?;
+        let machine_id = std::env::var("MACHINE_ID").unwrap_or_default();
+        let agent_token = std::env::var("AGENT_TOKEN").unwrap_or_default();
+        let enrollment_token = std::env::var("ENROLLMENT_TOKEN").unwrap_or_default();
 
-        if agent_token == "CHANGE_ME" || machine_id == "CHANGE_ME" {
-            anyhow::bail!("Config file still has CHANGE_ME placeholders");
+        let have_credentials = !machine_id.is_empty()
+            && machine_id != "CHANGE_ME"
+            && !agent_token.is_empty()
+            && agent_token != "CHANGE_ME";
+
+        if have_credentials {
+            return Ok(ConfigLoad::Ready(AgentConfig {
+                relay_url,
+                api_url,
+                machine_id,
+                agent_token,
+            }));
         }
 
-        Ok(AgentConfig { relay_url, api_url, machine_id, agent_token })
+        if !enrollment_token.is_empty() && enrollment_token != "CHANGE_ME" {
+            return Ok(ConfigLoad::NeedsEnrollment {
+                enrollment_token,
+                api_url,
+                relay_url,
+                config_path: path,
+            });
+        }
+
+        Ok(ConfigLoad::Missing)
     }
 }
 
 /// Read a KEY=VALUE file and set env vars (only if not already set).
-fn load_kv_file(path: &Path) -> anyhow::Result<()> {
+fn load_kv_file(path: &Path) -> Result<()> {
     let contents = std::fs::read_to_string(path)?;
     for line in contents.lines() {
         let line = line.trim();

@@ -4,6 +4,7 @@ pub mod audit_log;
 pub mod auth;
 pub mod downloads;
 pub mod email_test;
+pub mod enrollment;
 pub mod invitations;
 pub mod machines;
 pub mod recordings;
