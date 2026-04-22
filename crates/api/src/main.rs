@@ -68,6 +68,7 @@ async fn main() -> Result<()> {
             loop {
                 interval.tick().await;
                 routes::agent::sweep_stale(&pool).await;
+                routes::adhoc::sweep_expired(&pool).await;
                 // Close sessions whose viewer is long gone (no updates in 5 minutes and no
                 // corresponding active machine). Session token itself expires in 2 min.
                 let _ = sqlx::query(
@@ -132,6 +133,10 @@ async fn main() -> Result<()> {
         // Legacy aliases
         .route("/downloads/agent/linux/deb", get(routes::downloads::download_agent_deb))
         .route("/downloads/agent/windows/zip", get(routes::downloads::download_agent_windows))
+        // Public installers (no auth, ad-hoc/code+PIN flow)
+        .route("/downloads/agent/public/windows", get(routes::downloads::download_public_windows))
+        .route("/downloads/agent/public/macos", get(routes::downloads::download_public_macos))
+        .route("/downloads/agent/public/linux", get(routes::downloads::download_public_linux))
         // Audit log
         .route("/audit", get(routes::audit_log::list_tenant_audit))
         .route("/admin/audit", get(routes::audit_log::list_platform_audit))
@@ -142,6 +147,10 @@ async fn main() -> Result<()> {
         .route("/agent/recordings/upload", post(routes::recordings::agent_upload_recording))
         // Agent self-enrollment (no auth, just enrollment_token)
         .route("/agent/enroll", post(routes::enrollment::enroll))
+        // Ad-hoc (login-less) flow: public agent registration, viewer connect, tenant claim
+        .route("/agent/adhoc/register", post(routes::adhoc::register))
+        .route("/connect", post(routes::adhoc::connect))
+        .route("/machines/claim", post(routes::adhoc::claim))
         // Tenant enrollment token management (owner/admin)
         .route("/tenant/enrollment", get(routes::enrollment::get_enrollment_token))
         .route("/tenant/enrollment/rotate", post(routes::enrollment::rotate_enrollment_token))

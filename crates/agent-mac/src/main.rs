@@ -48,6 +48,24 @@ async fn main() -> Result<()> {
                 agent_token: result.agent_token,
             }
         }
+        callmor_agent_core::config::ConfigLoad::NeedsAdhoc {
+            api_url,
+            relay_url: _,
+            config_path,
+        } => {
+            info!("Ad-hoc mode: self-registering with API {api_url}...");
+            let hostname = hostname().unwrap_or_else(|| "unknown".into());
+            let result = callmor_agent_core::enrollment::register_adhoc(&api_url, &hostname, "macos").await?;
+            info!("Registered as machine {} — code {}, pin {}", result.machine_id, result.access_code, result.pin);
+            callmor_agent_core::display_code::show(&result.access_code, &result.pin);
+            callmor_agent_core::enrollment::save_adhoc_to_config(&config_path, &result)?;
+            AgentConfig {
+                relay_url: result.relay_url,
+                api_url: result.api_url,
+                machine_id: result.machine_id,
+                agent_token: result.agent_token,
+            }
+        }
         callmor_agent_core::config::ConfigLoad::Missing => {
             error!("No config at {}. Agent cannot start.", config_path.display());
             std::process::exit(1);

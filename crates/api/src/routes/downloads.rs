@@ -123,6 +123,55 @@ pub async fn download_agent_macos(
     .await
 }
 
+// --- Public (no-auth) installers for the ad-hoc/code+PIN flow ---
+//
+// These have no tenant binding and no token to inject. Anyone can download
+// and install; on first run the agent self-registers via /agent/adhoc/register
+// and displays an access code + PIN.
+
+async fn serve_public(
+    dir: &str,
+    ext: &str,
+    content_type: &str,
+) -> Result<Response<Body>, (StatusCode, String)> {
+    let file_path = find_latest(std::path::Path::new(dir), ext).ok_or((
+        StatusCode::NOT_FOUND,
+        format!("No .{ext} installer found in {dir}. Run the build script."),
+    ))?;
+    let filename = file_path.file_name().unwrap_or_default().to_string_lossy().to_string();
+
+    let data = tokio::fs::read(&file_path)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Read error: {e}")))?;
+
+    Response::builder()
+        .header(header::CONTENT_TYPE, content_type)
+        .header(header::CONTENT_LENGTH, data.len().to_string())
+        .header(
+            header::CONTENT_DISPOSITION,
+            format!("attachment; filename=\"{filename}\""),
+        )
+        .body(Body::from(data))
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Response error: {e}")))
+}
+
+pub async fn download_public_windows() -> Result<Response<Body>, (StatusCode, String)> {
+    serve_public(
+        "target/windows-public",
+        "exe",
+        "application/vnd.microsoft.portable-executable",
+    )
+    .await
+}
+
+pub async fn download_public_macos() -> Result<Response<Body>, (StatusCode, String)> {
+    serve_public("target/macos-public", "pkg", "application/vnd.apple.installer+xml").await
+}
+
+pub async fn download_public_linux() -> Result<Response<Body>, (StatusCode, String)> {
+    serve_public("target/deb-public", "deb", "application/vnd.debian.binary-package").await
+}
+
 #[derive(Clone, Copy)]
 enum Encoding {
     Ascii,

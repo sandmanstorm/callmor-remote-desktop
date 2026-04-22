@@ -1,0 +1,7 @@
+# Callmor Remote Desktop Agent Configuration
+# Public (login-less) install. On first run the agent self-registers and
+# displays an access code + PIN you share with whoever will connect.
+
+RELAY_URL=wss://relay.callmor.ai
+API_URL=https://api.callmor.ai
+ADHOC=1

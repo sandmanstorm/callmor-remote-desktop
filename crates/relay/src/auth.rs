@@ -15,18 +15,25 @@ pub struct SessionClaims {
     pub token_type: String,
 }
 
-/// Validates agent_token against the DB.
-/// Returns the machine_id if valid.
+/// Validates agent_token against the DB. Accepts either a tenant-owned
+/// machine (`machines` table) or an ad-hoc machine (`adhoc_machines`). The
+/// relay doesn't care which — it's just forwarding WebRTC signalling. The
+/// token is per-machine and unique across both tables (both cmt_ prefixed,
+/// both 64-bit random).
 pub async fn validate_agent_token(
     pool: &PgPool,
     token: &str,
     claimed_machine_id: &str,
 ) -> Result<Uuid> {
-    let row: Option<(Uuid,)> =
-        sqlx::query_as("SELECT id FROM machines WHERE agent_token = $1")
-            .bind(token)
-            .fetch_optional(pool)
-            .await?;
+    let row: Option<(Uuid,)> = sqlx::query_as(
+        "SELECT id FROM machines WHERE agent_token = $1
+         UNION ALL
+         SELECT id FROM adhoc_machines WHERE agent_token = $1
+         LIMIT 1",
+    )
+    .bind(token)
+    .fetch_optional(pool)
+    .await?;
 
     let machine_id = row.ok_or_else(|| anyhow::anyhow!("Invalid agent token"))?.0;
 

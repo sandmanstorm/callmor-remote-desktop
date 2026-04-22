@@ -55,6 +55,81 @@ pub async fn enroll(
     Ok(resp.json().await.context("parse enroll response")?)
 }
 
+// --- Ad-hoc (login-less) registration ---
+
+#[derive(Serialize)]
+struct AdhocRegisterRequest<'a> {
+    hostname: &'a str,
+    os: &'a str,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct AdhocRegisterResponse {
+    pub machine_id: String,
+    pub agent_token: String,
+    pub access_code: String,
+    pub pin: String,
+    pub relay_url: String,
+    pub api_url: String,
+}
+
+/// Self-register this machine in ad-hoc mode. Returns an access code + PIN the
+/// user shows to whoever wants to connect.
+pub async fn register_adhoc(
+    api_url: &str,
+    hostname: &str,
+    os: &str,
+) -> Result<AdhocRegisterResponse> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()?;
+
+    let resp = client
+        .post(format!("{api_url}/agent/adhoc/register"))
+        .json(&AdhocRegisterRequest { hostname, os })
+        .send()
+        .await
+        .context("adhoc register request")?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        anyhow::bail!("Adhoc register failed ({status}): {body}");
+    }
+
+    Ok(resp.json().await.context("parse adhoc response")?)
+}
+
+/// Persist ad-hoc credentials to agent.conf so next boot picks them up
+/// without re-registering.
+pub fn save_adhoc_to_config(config_path: &Path, r: &AdhocRegisterResponse) -> Result<()> {
+    let contents = format!(
+        "# Callmor Remote Desktop Agent Configuration (ad-hoc mode)\n\
+         # Auto-written by agent after self-registration. Do not hand-edit.\n\
+         \n\
+         RELAY_URL={}\n\
+         API_URL={}\n\
+         MACHINE_ID={}\n\
+         AGENT_TOKEN={}\n\
+         ACCESS_CODE={}\n\
+         PIN={}\n",
+        r.relay_url, r.api_url, r.machine_id, r.agent_token, r.access_code, r.pin,
+    );
+
+    if let Some(parent) = config_path.parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+    let tmp = config_path.with_extension("conf.tmp");
+    std::fs::write(&tmp, &contents).context("write config tmp")?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600)).ok();
+    }
+    std::fs::rename(&tmp, config_path).context("rename config")?;
+    Ok(())
+}
+
 /// Persist enrollment result to the agent config file.
 /// Rewrites the file atomically. Clears the one-time ENROLLMENT_TOKEN.
 pub fn save_to_config(

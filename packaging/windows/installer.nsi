@@ -14,6 +14,13 @@
     !error "Define BIN=/path/to/callmor-agent.exe"
 !endif
 
+; MODE=tenant -> bakes in an enrollment-token placeholder (per-tenant download)
+; MODE=adhoc  -> writes ADHOC=1; agent will self-register on first run and
+;                display an access code + PIN to the user
+!ifndef MODE
+    !define MODE "tenant"
+!endif
+
 !include "MUI2.nsh"
 
 Name "Callmor Remote Desktop Agent ${VERSION}"
@@ -58,9 +65,11 @@ Section "Install"
     SetShellVarContext all
     CreateDirectory "$APPDATA\Callmor"
 
-    ; Write agent.conf with baked-in enrollment token.
-    ; The placeholder below is replaced byte-for-byte by the API at download
-    ; time with the tenant's real enrollment token (same length, 36 chars).
+    ; Write agent.conf. In tenant mode the ENROLLMENT_TOKEN placeholder is
+    ; replaced byte-for-byte by the API at download time with the caller's
+    ; real token (same length, 36 chars). In adhoc mode we write ADHOC=1
+    ; instead, which makes the agent self-register and display a code + PIN
+    ; on first run.
     FileOpen $0 "$APPDATA\Callmor\agent.conf" w
     FileWrite $0 "# Callmor Remote Desktop Agent Configuration (Windows)$\r$\n"
     FileWrite $0 "# Auto-written by installer. Will be replaced by the agent on first run$\r$\n"
@@ -68,7 +77,11 @@ Section "Install"
     FileWrite $0 "$\r$\n"
     FileWrite $0 "RELAY_URL=wss://relay.callmor.ai$\r$\n"
     FileWrite $0 "API_URL=https://api.callmor.ai$\r$\n"
-    FileWrite $0 "ENROLLMENT_TOKEN=cle_INSTALLER_TOKEN_PLACEHOLDER_XXXX$\r$\n"
+    !if "${MODE}" == "adhoc"
+        FileWrite $0 "ADHOC=1$\r$\n"
+    !else
+        FileWrite $0 "ENROLLMENT_TOKEN=cle_INSTALLER_TOKEN_PLACEHOLDER_XXXX$\r$\n"
+    !endif
     FileClose $0
 
     ; Register the Windows service

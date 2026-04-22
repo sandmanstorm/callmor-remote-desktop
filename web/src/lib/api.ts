@@ -350,4 +350,38 @@ export const enrollmentApi = {
   rotate: () => api.post<TenantEnrollmentInfo>('/tenant/enrollment/rotate'),
 };
 
+// --- Ad-hoc (login-less) flow ---
+
+export interface ConnectRequest {
+  access_code: string;
+  pin: string;
+}
+
+export interface ConnectResponse {
+  machine_id: string;
+  session_token: string;
+  relay_url: string;
+  hostname: string;
+}
+
+export interface ClaimRequest {
+  access_code: string;
+  pin: string;
+  name?: string;
+}
+
+export interface ClaimResponse {
+  machine_id: string;
+  name: string;
+}
+
+export const adhocApi = {
+  // Public — no auth header required, but axios will send one if the user
+  // happens to be logged in; the API ignores it for these endpoints.
+  connect: (data: ConnectRequest) =>
+    api.post<ConnectResponse>('/connect', data),
+  claim: (data: ClaimRequest) =>
+    api.post<ClaimResponse>('/machines/claim', data),
+};
+
 export default api;

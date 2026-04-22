@@ -47,24 +47,61 @@ pub async fn heartbeat(
     headers: HeaderMap,
     Json(req): Json<HeartbeatRequest>,
 ) -> Result<Json<HeartbeatResponse>, (StatusCode, String)> {
-    let (machine_id, _tenant_id) = validate_agent_token(&state, &headers).await?;
+    let token = headers
+        .get("X-Agent-Token")
+        .and_then(|v| v.to_str().ok())
+        .ok_or((StatusCode::UNAUTHORIZED, "Missing X-Agent-Token header".into()))?;
 
-    // Ensure the token matches the machine_id in the body (agent should only report for itself)
-    if machine_id != req.machine_id {
-        return Err((StatusCode::FORBIDDEN, "Token/machine mismatch".into()));
+    // Try tenant machines first
+    let tenant_row: Option<(Uuid,)> =
+        sqlx::query_as("SELECT id FROM machines WHERE agent_token = $1")
+            .bind(token)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+
+    if let Some((machine_id,)) = tenant_row {
+        if machine_id != req.machine_id {
+            return Err((StatusCode::FORBIDDEN, "Token/machine mismatch".into()));
+        }
+        sqlx::query(
+            "UPDATE machines SET last_seen = now(), is_online = true, \
+             hostname = COALESCE($2, hostname), os = COALESCE($3, os) WHERE id = $1",
+        )
+        .bind(machine_id)
+        .bind(req.hostname.as_deref())
+        .bind(req.os.as_deref())
+        .execute(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+        return Ok(Json(HeartbeatResponse { ok: true }));
     }
 
-    sqlx::query(
-        "UPDATE machines SET last_seen = now(), is_online = true, hostname = COALESCE($2, hostname), os = COALESCE($3, os) WHERE id = $1",
-    )
-    .bind(machine_id)
-    .bind(req.hostname.as_deref())
-    .bind(req.os.as_deref())
-    .execute(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+    // Fall through to adhoc machines — same agent, different table
+    let adhoc_row: Option<(Uuid,)> =
+        sqlx::query_as("SELECT id FROM adhoc_machines WHERE agent_token = $1")
+            .bind(token)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
-    Ok(Json(HeartbeatResponse { ok: true }))
+    if let Some((machine_id,)) = adhoc_row {
+        if machine_id != req.machine_id {
+            return Err((StatusCode::FORBIDDEN, "Token/machine mismatch".into()));
+        }
+        sqlx::query(
+            "UPDATE adhoc_machines SET last_seen = now(), online = true, \
+             hostname = COALESCE($2, hostname) WHERE id = $1",
+        )
+        .bind(machine_id)
+        .bind(req.hostname.as_deref())
+        .execute(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+        return Ok(Json(HeartbeatResponse { ok: true }));
+    }
+
+    Err((StatusCode::UNAUTHORIZED, "Invalid agent token".into()))
 }
 
 /// Called periodically by the API to mark stale machines as offline.

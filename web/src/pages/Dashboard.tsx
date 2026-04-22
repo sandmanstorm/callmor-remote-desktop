@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
-import { machinesApi, sessionsApi, machineAccessApi, usersApi, enrollmentApi, errMsg } from '../lib/api';
+import { machinesApi, sessionsApi, machineAccessApi, usersApi, enrollmentApi, adhocApi, errMsg } from '../lib/api';
 import type { Machine, CreateMachineResponse, AccessUser, User } from '../lib/api';
-import { Monitor, Plus, Trash2, LogOut, Copy, Wifi, WifiOff, Download, Users, Eye, Settings, Lock, Globe, X, Shield, Activity, Film, RefreshCw, Key } from 'lucide-react';
+import { Monitor, Plus, Trash2, LogOut, Copy, Wifi, WifiOff, Download, Users, Eye, Settings, Lock, Globe, X, Shield, Activity, Film, RefreshCw, Key, Link2 } from 'lucide-react';
 
 export default function Dashboard() {
   const { user, logout } = useAuth();
@@ -32,6 +32,37 @@ export default function Dashboard() {
     } catch (err: any) {
       alert(errMsg(err, 'Failed to load enrollment token'));
       setShowTokenModal(false);
+    }
+  };
+
+  // --- Claim (adhoc -> tenant) ---
+  const [showClaimModal, setShowClaimModal] = useState(false);
+  const [claimCode, setClaimCode] = useState('');
+  const [claimPin, setClaimPin] = useState('');
+  const [claimName, setClaimName] = useState('');
+  const [claiming, setClaiming] = useState(false);
+  const [claimError, setClaimError] = useState<string | null>(null);
+
+  const openClaim = () => {
+    setShowClaimModal(true);
+    setClaimCode(''); setClaimPin(''); setClaimName(''); setClaimError(null);
+  };
+
+  const submitClaim = async () => {
+    setClaimError(null);
+    setClaiming(true);
+    try {
+      await adhocApi.claim({
+        access_code: claimCode,
+        pin: claimPin,
+        name: claimName.trim() || undefined,
+      });
+      setShowClaimModal(false);
+      fetchMachines();
+    } catch (err: any) {
+      setClaimError(errMsg(err, 'Claim failed'));
+    } finally {
+      setClaiming(false);
     }
   };
 
@@ -198,13 +229,13 @@ export default function Dashboard() {
                           <div className="font-medium">Windows</div>
                           <div className="text-xs text-gray-500">callmor-agent-setup.exe</div>
                         </a>
-                        <a
-                          href={`${base}/downloads/agent/macos${qs}`}
-                          className="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-800 border-b border-gray-800"
+                        <div
+                          className="block px-4 py-2 text-sm text-gray-500 border-b border-gray-800 cursor-not-allowed"
+                          title="Coming soon — use Windows or Linux for now"
                         >
-                          <div className="font-medium">macOS</div>
-                          <div className="text-xs text-gray-500">callmor-agent.pkg</div>
-                        </a>
+                          <div className="font-medium">macOS <span className="text-xs text-gray-600">(coming soon)</span></div>
+                          <div className="text-xs text-gray-600">callmor-agent.pkg</div>
+                        </div>
                         <a
                           href={`${base}/downloads/agent/linux${qs}`}
                           className="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-800"
@@ -226,6 +257,13 @@ export default function Dashboard() {
                   <Key className="w-4 h-4" /> Token
                 </button>
               )}
+              <button
+                onClick={openClaim}
+                className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 rounded text-sm font-medium"
+                title="Import a computer that registered with a public installer (code + PIN)"
+              >
+                <Link2 className="w-4 h-4" /> Claim
+              </button>
               <button
                 onClick={() => { setShowAddModal(true); setNewMachineName(''); setNewMachineResult(null); }}
                 className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-medium"
@@ -458,6 +496,88 @@ export default function Dashboard() {
             <div className="flex justify-end mt-4">
               <button onClick={() => setAccessModal(null)} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm">
                 Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showClaimModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-900 border border-gray-700 rounded-lg max-w-md w-full p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                <Link2 className="w-5 h-5" /> Claim a Computer
+              </h3>
+              <button onClick={() => setShowClaimModal(false)} className="text-gray-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-sm text-gray-400 mb-4">
+              Enter the access code + PIN shown on the remote computer. Once claimed, the machine becomes part of your account and you can manage it like any other.
+            </p>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Access Code</label>
+                <input
+                  type="text"
+                  value={claimCode}
+                  onChange={(e) => setClaimCode(e.target.value.toUpperCase())}
+                  placeholder="ABCD-1234"
+                  autoFocus
+                  autoComplete="off"
+                  className="w-full px-3 py-2 bg-gray-950 border border-gray-700 rounded font-mono tracking-widest text-center text-white focus:border-blue-500 focus:outline-none"
+                  maxLength={10}
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">PIN</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={claimPin}
+                  onChange={(e) => setClaimPin(e.target.value.replace(/\D/g, ''))}
+                  placeholder="1234"
+                  autoComplete="off"
+                  className="w-full px-3 py-2 bg-gray-950 border border-gray-700 rounded font-mono tracking-widest text-center text-white focus:border-blue-500 focus:outline-none"
+                  maxLength={4}
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Name (optional)</label>
+                <input
+                  type="text"
+                  value={claimName}
+                  onChange={(e) => setClaimName(e.target.value)}
+                  placeholder="e.g. Office Desktop"
+                  className="w-full px-3 py-2 bg-gray-950 border border-gray-700 rounded text-white focus:border-blue-500 focus:outline-none"
+                  maxLength={100}
+                />
+              </div>
+            </div>
+
+            {claimError && (
+              <div className="mt-3 p-3 bg-red-950/50 border border-red-900 rounded text-sm text-red-300">
+                {claimError}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 mt-5">
+              <button
+                onClick={() => setShowClaimModal(false)}
+                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded text-sm font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitClaim}
+                disabled={claiming || !claimCode || claimPin.length !== 4}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded text-sm font-medium"
+              >
+                {claiming ? 'Claiming…' : 'Claim'}
               </button>
             </div>
           </div>

@@ -8,6 +8,8 @@ import Admin from './pages/Admin';
 import Activity from './pages/Activity';
 import Recordings from './pages/Recordings';
 import AcceptInvite from './pages/AcceptInvite';
+import Connect from './pages/Connect';
+import Download from './pages/Download';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth();
@@ -27,6 +29,9 @@ function App() {
           <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
           <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
           <Route path="/invite/:token" element={<AcceptInvite />} />
+          {/* Login-less ad-hoc flow — anyone can reach these */}
+          <Route path="/connect" element={<Connect />} />
+          <Route path="/download" element={<Download />} />
           <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/team" element={<ProtectedRoute><Team /></ProtectedRoute>} />
           <Route path="/activity" element={<ProtectedRoute><Activity /></ProtectedRoute>} />
