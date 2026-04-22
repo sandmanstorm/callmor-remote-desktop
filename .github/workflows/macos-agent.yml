@@ -1,0 +1,89 @@
+name: macOS Agent
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'crates/agent-mac/**'
+      - 'crates/agent-core/**'
+      - 'crates/shared/**'
+      - 'packaging/macos/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/macos-agent.yml'
+  workflow_dispatch:
+  release:
+    types: [created]
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          # Build a universal (Intel + Apple Silicon) binary
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .
+
+      - name: Build (aarch64, Apple Silicon)
+        run: cargo build -p callmor-agent-mac --target aarch64-apple-darwin --release
+
+      - name: Build (x86_64, Intel)
+        run: cargo build -p callmor-agent-mac --target x86_64-apple-darwin --release
+
+      - name: Combine into universal binary
+        run: |
+          mkdir -p dist
+          lipo -create \
+            target/aarch64-apple-darwin/release/callmor-agent \
+            target/x86_64-apple-darwin/release/callmor-agent \
+            -output dist/callmor-agent
+          strip dist/callmor-agent
+          file dist/callmor-agent
+
+      - name: Build .pkg installer
+        run: |
+          VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+
+          # pkg root: files to install
+          mkdir -p pkgroot/usr/local/bin
+          mkdir -p "pkgroot/Library/LaunchDaemons"
+          cp dist/callmor-agent pkgroot/usr/local/bin/
+          cp packaging/macos/com.callmor.agent.plist "pkgroot/Library/LaunchDaemons/"
+          chmod 755 pkgroot/usr/local/bin/callmor-agent
+          chmod 644 "pkgroot/Library/LaunchDaemons/com.callmor.agent.plist"
+
+          # Scripts dir for postinstall
+          mkdir -p scripts
+          cp packaging/macos/postinstall scripts/
+          chmod 755 scripts/postinstall
+
+          # Build the .pkg
+          pkgbuild \
+            --root pkgroot \
+            --scripts scripts \
+            --identifier com.callmor.agent \
+            --version "$VERSION" \
+            --install-location / \
+            "dist/callmor-agent-${VERSION}.pkg"
+
+          ls -lh dist/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: callmor-agent-macos
+          path: dist/callmor-agent-*.pkg
+
+      - name: Attach to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/callmor-agent-*.pkg

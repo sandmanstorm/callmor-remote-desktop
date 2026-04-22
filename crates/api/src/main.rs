@@ -126,6 +126,10 @@ async fn main() -> Result<()> {
         .route("/sessions", get(routes::sessions::list_sessions))
         .route("/sessions/active", get(routes::sessions::list_active_sessions))
         // Downloads
+        .route("/downloads/agent/linux", get(routes::downloads::download_agent_deb))
+        .route("/downloads/agent/windows", get(routes::downloads::download_agent_windows))
+        .route("/downloads/agent/macos", get(routes::downloads::download_agent_macos))
+        // Legacy aliases
         .route("/downloads/agent/linux/deb", get(routes::downloads::download_agent_deb))
         .route("/downloads/agent/windows/zip", get(routes::downloads::download_agent_windows))
         // Audit log

@@ -155,18 +155,27 @@ export default function Dashboard() {
                 >
                   <Download className="w-4 h-4" /> Download Agent ▾
                 </button>
-                <div className="absolute right-0 mt-1 hidden group-hover:block bg-gray-900 border border-gray-700 rounded shadow-lg z-10 min-w-[180px]">
+                <div className="absolute right-0 mt-1 hidden group-hover:block bg-gray-900 border border-gray-700 rounded shadow-lg z-10 min-w-[220px]">
                   <a
-                    href={`${import.meta.env.VITE_API_URL || ''}/downloads/agent/linux/deb`}
-                    className="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-800"
+                    href={`${import.meta.env.VITE_API_URL || ''}/downloads/agent/windows`}
+                    className="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-800 border-b border-gray-800"
                   >
-                    Linux (.deb)
+                    <div className="font-medium">Windows</div>
+                    <div className="text-xs text-gray-500">callmor-agent-setup.exe</div>
                   </a>
                   <a
-                    href={`${import.meta.env.VITE_API_URL || ''}/downloads/agent/windows/zip`}
+                    href={`${import.meta.env.VITE_API_URL || ''}/downloads/agent/macos`}
+                    className="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-800 border-b border-gray-800"
+                  >
+                    <div className="font-medium">macOS</div>
+                    <div className="text-xs text-gray-500">callmor-agent.pkg</div>
+                  </a>
+                  <a
+                    href={`${import.meta.env.VITE_API_URL || ''}/downloads/agent/linux`}
                     className="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-800"
                   >
-                    Windows (.zip)
+                    <div className="font-medium">Linux</div>
+                    <div className="text-xs text-gray-500">callmor-agent.deb</div>
                   </a>
                 </div>
               </div>

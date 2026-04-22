@@ -1,0 +1,40 @@
+#!/bin/bash
+# macOS pkg postinstall: finalize agent setup after the user paste their token.
+# Runs with root privileges.
+set -e
+
+AGENT_BIN="/usr/local/bin/callmor-agent"
+CONFIG_DIR="/Library/Application Support/Callmor"
+CONFIG_FILE="$CONFIG_DIR/agent.conf"
+LAUNCHD_PLIST="/Library/LaunchDaemons/com.callmor.agent.plist"
+
+mkdir -p "$CONFIG_DIR"
+
+# Install config template if none exists
+if [ ! -f "$CONFIG_FILE" ]; then
+    cat > "$CONFIG_FILE" <<EOF
+# Callmor Remote Desktop Agent Configuration (macOS)
+# Edit this file with values from the Callmor dashboard, then:
+#   sudo launchctl bootout system/com.callmor.agent
+#   sudo launchctl bootstrap system $LAUNCHD_PLIST
+
+RELAY_URL=wss://relay.callmor.ai
+API_URL=https://api.callmor.ai
+MACHINE_ID=CHANGE_ME
+AGENT_TOKEN=CHANGE_ME
+EOF
+    chmod 600 "$CONFIG_FILE"
+fi
+
+# Install launchd plist and load it
+chown root:wheel "$LAUNCHD_PLIST"
+chmod 644 "$LAUNCHD_PLIST"
+
+# Unload old version if present, then load current
+launchctl bootout system/com.callmor.agent 2>/dev/null || true
+launchctl bootstrap system "$LAUNCHD_PLIST"
+
+# macOS will require Screen Recording + Accessibility permissions.
+# These can only be granted by the user manually in System Settings.
+
+exit 0

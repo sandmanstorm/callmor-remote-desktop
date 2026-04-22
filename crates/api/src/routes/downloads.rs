@@ -11,7 +11,16 @@ pub async fn download_agent_deb() -> Result<Response<Body>, (StatusCode, String)
 }
 
 pub async fn download_agent_windows() -> Result<Response<Body>, (StatusCode, String)> {
+    // Prefer the NSIS .exe installer if present, fall back to .zip
+    let exe_dir = std::path::Path::new("target/windows");
+    if find_latest(exe_dir, "exe").is_some() {
+        return stream_latest("target/windows", "exe", "application/vnd.microsoft.portable-executable").await;
+    }
     stream_latest("target/windows", "zip", "application/zip").await
+}
+
+pub async fn download_agent_macos() -> Result<Response<Body>, (StatusCode, String)> {
+    stream_latest("target/macos", "pkg", "application/vnd.apple.installer+xml").await
 }
 
 async fn stream_latest(
