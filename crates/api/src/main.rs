@@ -101,6 +101,8 @@ async fn main() -> Result<()> {
     let app = Router::new()
         // Health
         .route("/health", get(health))
+        // TURN credentials (public, for both /connect adhoc flow and logged-in viewers)
+        .route("/turn", get(routes::turn::get_turn_config))
         // Auth
         .route("/auth/register", post(routes::auth::register))
         .route("/auth/login", post(routes::auth::login))

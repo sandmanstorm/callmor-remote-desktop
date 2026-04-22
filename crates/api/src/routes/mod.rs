@@ -11,4 +11,5 @@ pub mod machines;
 pub mod recordings;
 pub mod sessions;
 pub mod settings;
+pub mod turn;
 pub mod users;

@@ -76,7 +76,33 @@
     let remoteScreenWidth = 1920;
     let remoteScreenHeight = 1080;
 
-    const ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }];
+    // Default — overridden by fetchIceServers() before connect()
+    let ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }];
+
+    // Pull TURN creds from the API. Without TURN, symmetric-NAT networks
+    // (home/corporate/mobile) will ICE-connect briefly then drop.
+    async function fetchIceServers() {
+      try {
+        // Resolve the API host from the relay URL the session used.
+        // relay = wss://relay.callmor.ai -> api = https://api.callmor.ai
+        const relayParam = new URLSearchParams(window.location.search).get('relay') || '';
+        const m = relayParam.match(/^wss?:\/\/([^\/]+)/);
+        const host = m ? m[1].replace(/^relay\./, 'api.') : 'api.callmor.ai';
+        const proto = (relayParam.startsWith('ws://') || location.protocol === 'http:') ? 'http' : 'https';
+        const resp = await fetch(`${proto}://${host}/turn`);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        if (Array.isArray(data.ice_servers) && data.ice_servers.length > 0) {
+          ICE_SERVERS = data.ice_servers.map(s => ({
+            urls: s.urls,
+            ...(s.username ? { username: s.username, credential: s.credential } : {}),
+          }));
+          log(`Loaded ${ICE_SERVERS.length} ICE servers (including TURN)`, 'ok');
+        }
+      } catch (e) {
+        log(`TURN fetch failed (${e.message}); using public STUN only`, 'err');
+      }
+    }
 
     function log(text, cls = 'sys') {
       const el = document.getElementById('log');
@@ -178,6 +204,8 @@
 
       document.getElementById('connectBtn').disabled = true;
       setStatus('Connecting...', 'connecting');
+      log('Fetching TURN credentials...');
+      await fetchIceServers();
       log('Connecting to relay...');
 
       ws = new WebSocket(url);
