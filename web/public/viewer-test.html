@@ -215,10 +215,22 @@
         if (sessionToken) hello.token = sessionToken;
         ws.send(JSON.stringify(hello));
         log(`Connected to relay as browser for "${machineId}"`, 'ok');
-        setTimeout(() => {
+        // Re-send "ready" until we get an offer. The relay drops ready if the
+        // agent isn't registered yet, so if the agent is reconnecting or
+        // slower to join the room, a single ready can silently disappear.
+        // Stopped by handleSignal() when an offer arrives.
+        const sendReady = () => {
           sendSignal({ signal: 'ready', session_id: window.sessionId });
+        };
+        setTimeout(() => {
+          sendReady();
           log('Sent "ready" to agent, waiting for offer...', 'ok');
         }, 300);
+        window.readyInterval = setInterval(() => {
+          if (!pc || pc.signalingState === 'stable' && pc.remoteDescription) return;
+          log('Still waiting for agent — resending ready', 'sys');
+          sendReady();
+        }, 3000);
       };
 
       ws.onmessage = (e) => {
@@ -235,6 +247,7 @@
     }
 
     function cleanup() {
+      if (window.readyInterval) { clearInterval(window.readyInterval); window.readyInterval = null; }
       if (pc) { pc.close(); pc = null; }
       if (ws) {
         try { ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null; } catch {}
@@ -339,6 +352,8 @@
       if (payload.signal === 'offer') {
         log(`Received SDP offer from agent (${payload.sdp.length} bytes)`, 'ok');
         setStatus('Negotiating...', 'connecting');
+        // Agent is here — stop pinging ready
+        if (window.readyInterval) { clearInterval(window.readyInterval); window.readyInterval = null; }
 
         createPeerConnection();
         await pc.setRemoteDescription({ type: 'offer', sdp: payload.sdp });

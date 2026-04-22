@@ -158,7 +158,12 @@ async fn handle_connection(stream: TcpStream, peer: SocketAddr, state: RelayStat
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();
     let conn_id = NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-    // Register in room
+    // Register in room, and if an Agent is joining a room that already has
+    // browsers waiting, synthesize a "ready" for each browser so the agent
+    // starts the handshake instead of sitting idle forever. Without this
+    // the browser-sent "ready" is silently dropped if it was sent before
+    // the agent's WebSocket was up.
+    let waiting_browsers: usize;
     {
         let mut rooms_guard = state.rooms.write().await;
         let room = rooms_guard.entry(machine_id.clone()).or_insert_with(Room::new);
@@ -168,10 +173,26 @@ async fn handle_connection(stream: TcpStream, peer: SocketAddr, state: RelayStat
                     info!("{peer}: Replacing existing agent for machine {machine_id}");
                 }
                 room.agent = Some((conn_id, tx.clone()));
+                waiting_browsers = room.browsers.len();
             }
             Role::Browser => {
                 room.browsers.insert(conn_id, tx.clone());
+                waiting_browsers = 0;
             }
+        }
+    }
+
+    // For each waiting browser, nudge the agent with a synthetic ready signal.
+    // The payload matches what the browser would send: wrapped in a Relay
+    // message with { signal: "ready" }.
+    if let Role::Agent = role {
+        if waiting_browsers > 0 {
+            info!("{peer}: Agent arrived with {waiting_browsers} browser(s) already waiting — injecting ready");
+            let synthetic = serde_json::json!({
+                "type": "relay",
+                "payload": { "signal": "ready" }
+            });
+            let _ = tx.send(synthetic.to_string());
         }
     }
 
