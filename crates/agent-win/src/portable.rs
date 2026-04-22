@@ -547,10 +547,51 @@ mod ui {
         let _ = (&app.title, &app.code_label, &app.pin_label, &app.notice, &app.fonts);
     }
 
+    /// Direct Win32 clipboard write. Avoids nwg's Clipboard wrapper, which
+    /// panics when given ControlHandle::NoHandle and kills the GUI thread
+    /// (symptom: window closed the instant the user clicked Copy).
     fn copy_to_clipboard(text: &str) {
         if text.is_empty() {
             return;
         }
-        let _ = nwg::Clipboard::set_data_text(&nwg::ControlHandle::NoHandle, text);
+        use std::ffi::c_void;
+        use windows::Win32::Foundation::{HANDLE, HWND};
+        use windows::Win32::System::DataExchange::{
+            CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
+        };
+        use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
+        use windows::Win32::System::Ole::CF_UNICODETEXT;
+
+        // Encode as UTF-16 with a trailing null.
+        let wide: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
+        let bytes = wide.len() * std::mem::size_of::<u16>();
+
+        unsafe {
+            if OpenClipboard(Some(HWND(std::ptr::null_mut()))).is_err() {
+                return;
+            }
+            let _ = EmptyClipboard();
+            let hmem = match GlobalAlloc(GMEM_MOVEABLE, bytes) {
+                Ok(h) => h,
+                Err(_) => {
+                    let _ = CloseClipboard();
+                    return;
+                }
+            };
+            let dst = GlobalLock(hmem) as *mut u16;
+            if !dst.is_null() {
+                std::ptr::copy_nonoverlapping(wide.as_ptr(), dst, wide.len());
+                let _ = GlobalUnlock(hmem);
+                // Once SetClipboardData succeeds, Windows owns the memory —
+                // don't free it.
+                let _ = SetClipboardData(
+                    CF_UNICODETEXT.0.into(),
+                    Some(HANDLE(hmem.0 as *mut c_void)),
+                );
+            }
+            let _ = CloseClipboard();
+        }
+        // Unused HWND import kept for clarity
+        let _ = HWND(std::ptr::null_mut());
     }
 }
