@@ -142,9 +142,35 @@ async fn setup_peer_connection(
     tokio::task::JoinHandle<()>,
     Arc<std::sync::atomic::AtomicBool>,
 )> {
-    // Media engine with H.264 codec
+    // Media engine with H.264 codec.
+    //
+    // We register register_default_codecs() AND then manually add an H.264
+    // payload entry with profile-level-id 42e034 — Constrained Baseline
+    // Level 5.2. The default codecs only advertise levels up to 3.1, which
+    // caps decode at 1280x720@30. We capture at the monitor's native
+    // resolution (often 1920x1080 or higher) so we need the browser's
+    // decoder to accept a higher level. Level 5.2 supports 4K@60.
     let mut media = MediaEngine::default();
     media.register_default_codecs()?;
+    use webrtc::rtp_transceiver::rtp_codec::{
+        RTCRtpCodecCapability, RTCRtpCodecParameters, RTPCodecType,
+    };
+    media.register_codec(
+        RTCRtpCodecParameters {
+            capability: RTCRtpCodecCapability {
+                mime_type: MIME_TYPE_H264.to_string(),
+                clock_rate: 90000,
+                channels: 0,
+                sdp_fmtp_line:
+                    "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e034"
+                        .to_string(),
+                rtcp_feedback: vec![],
+            },
+            payload_type: 127,
+            ..Default::default()
+        },
+        RTPCodecType::Video,
+    )?;
 
     let api = APIBuilder::new().with_media_engine(media).build();
 
