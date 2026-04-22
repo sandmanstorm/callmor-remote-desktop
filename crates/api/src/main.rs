@@ -1,4 +1,5 @@
 mod auth_extractor;
+mod email;
 mod jwt;
 mod routes;
 mod state;
@@ -38,9 +39,20 @@ async fn main() -> Result<()> {
     let pool = callmor_shared::db::create_pool(&database_url).await?;
     info!("Connected to PostgreSQL");
 
+    let email_config = email::EmailConfig::from_env();
+    if email_config.is_some() {
+        info!("SMTP configured (email enabled)");
+    } else {
+        info!("SMTP not configured (SMTP_HOST missing) — emails disabled");
+    }
+
+    let public_url = std::env::var("PUBLIC_WEB_URL").unwrap_or_else(|_| "https://remote.callmor.ai".into());
+
     let state = AppState {
         db: pool.clone(),
         jwt: jwt::JwtKeys::from_secret(jwt_secret.as_bytes()),
+        email: email_config,
+        public_url,
     };
 
     // Background sweep: mark stale machines offline every 30s
@@ -100,6 +112,8 @@ async fn main() -> Result<()> {
         .route("/downloads/agent/linux/deb", get(routes::downloads::download_agent_deb))
         // Agent (agent-token auth, not user JWT)
         .route("/agent/heartbeat", post(routes::agent::heartbeat))
+        // Admin
+        .route("/admin/test-email", post(routes::email_test::send_test_email))
         .layer(cors)
         .with_state(state);
 

@@ -134,7 +134,50 @@ sudo systemctl enable --now callmor-agent    # Test agent (demo only)
 | callmor-xvfb | Xvfb virtual display on :99 | Demo only |
 | callmor-agent | Test agent on Xvfb display | Demo only |
 
-### Downloading the Linux agent installer
+## SMTP Email (Invitation Emails)
+
+Invitation emails are optional. If not configured, owners/admins copy the invite link from the dashboard and send it manually.
+
+### Setup with Mail-in-a-Box
+
+1. Log into your Mail-in-a-Box admin panel and create a mailbox, e.g. `noreply@callmor.ai`
+2. Add these to `.env`:
+
+```bash
+SMTP_HOST=box.yourdomain.com            # your MiaB hostname
+SMTP_PORT=587
+SMTP_USERNAME=noreply@yourdomain.com    # the mailbox you created
+SMTP_PASSWORD=your-mailbox-password
+SMTP_TLS=starttls                       # Mail-in-a-Box supports STARTTLS on 587
+SMTP_FROM_EMAIL=noreply@yourdomain.com  # optional, defaults to SMTP_USERNAME
+SMTP_FROM_NAME=Callmor Remote           # optional
+PUBLIC_WEB_URL=https://remote.callmor.ai  # used in email links
+```
+
+3. Restart the API: `sudo systemctl restart callmor-api`
+
+4. Test by hitting the admin test endpoint:
+```bash
+TOKEN=$(...)  # your access token from login
+curl -X POST https://api.callmor.ai/admin/test-email \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"to":"you@example.com"}'
+```
+
+Or just send an invitation — the response will include `"email_sent": true` if it worked.
+
+### Other SMTP providers
+
+| Provider | SMTP_HOST | SMTP_PORT | SMTP_TLS |
+|----------|-----------|-----------|----------|
+| Mail-in-a-Box | box.yourdomain.com | 587 | starttls |
+| Gmail (app password) | smtp.gmail.com | 587 | starttls |
+| SendGrid | smtp.sendgrid.net | 587 | starttls |
+| AWS SES | email-smtp.REGION.amazonaws.com | 587 | starttls |
+| Postmark | smtp.postmarkapp.com | 587 | starttls |
+
+## Downloading the Linux agent installer
 
 - From the dashboard: click **Download Agent (.deb)** button
 - Direct URL: `https://api.callmor.ai/downloads/agent/linux/deb`

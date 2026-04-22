@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod auth;
 pub mod downloads;
+pub mod email_test;
 pub mod invitations;
 pub mod machines;
 pub mod sessions;

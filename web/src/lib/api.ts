@@ -134,6 +134,7 @@ export interface CreateInvitationResponse {
   role: string;
   token: string;
   expires_at: string;
+  email_sent: boolean;
 }
 
 export interface InvitationDetails {

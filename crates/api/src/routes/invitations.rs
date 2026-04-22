@@ -30,6 +30,7 @@ pub struct CreateInvitationResponse {
     pub role: String,
     pub token: String,
     pub expires_at: chrono::DateTime<chrono::Utc>,
+    pub email_sent: bool,
 }
 
 fn require_admin_or_owner(role: &str) -> Result<(), (StatusCode, String)> {
@@ -76,6 +77,37 @@ pub async fn create_invitation(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
+    // Lookup inviter name + tenant name for the email
+    let (inviter_name, tenant_name): (String, String) = sqlx::query_as(
+        "SELECT u.display_name, t.name FROM users u JOIN tenants t ON u.tenant_id = t.id WHERE u.id = $1",
+    )
+    .bind(claims.sub)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+
+    let invite_link = format!("{}/invite/{}", state.public_url, token);
+    let mut email_sent = false;
+
+    if let Some(smtp) = &state.email {
+        let (subject, html, text) = crate::email::invitation_email(
+            &req.email,
+            &inviter_name,
+            &tenant_name,
+            &req.role,
+            &invite_link,
+        );
+        match smtp.send(&req.email, &subject, &html, &text).await {
+            Ok(()) => {
+                tracing::info!("Invitation email sent to {}", req.email);
+                email_sent = true;
+            }
+            Err(e) => {
+                tracing::warn!("Failed to send invitation email to {}: {e:#}", req.email);
+            }
+        }
+    }
+
     Ok((
         StatusCode::CREATED,
         Json(CreateInvitationResponse {
@@ -84,6 +116,7 @@ pub async fn create_invitation(
             role: req.role,
             token,
             expires_at,
+            email_sent,
         }),
     ))
 }

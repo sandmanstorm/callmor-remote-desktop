@@ -233,9 +233,16 @@ export default function Team() {
             ) : (
               <>
                 <h3 className="text-lg font-semibold text-white mb-2">Invitation Created</h3>
-                <p className="text-sm text-gray-400 mb-4">
-                  Send this link to <strong>{inviteResult.email}</strong>. It expires in 7 days.
-                </p>
+                {(inviteResult as any).email_sent ? (
+                  <div className="bg-green-900/30 border border-green-700 rounded px-3 py-2 mb-4 text-green-300 text-sm">
+                    ✓ Invitation email sent to <strong>{inviteResult.email}</strong>
+                  </div>
+                ) : (
+                  <p className="text-sm text-yellow-400 mb-4">
+                    SMTP not configured — copy this link and send it manually to <strong>{inviteResult.email}</strong>.
+                  </p>
+                )}
+                <p className="text-sm text-gray-400 mb-2">Direct link (expires in 7 days):</p>
                 <div className="bg-gray-800 border border-gray-700 rounded p-3 mb-4 flex items-center gap-2">
                   <code className="text-blue-300 text-xs break-all flex-1">{inviteLink(inviteResult.token)}</code>
                   <button
