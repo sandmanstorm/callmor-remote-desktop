@@ -4,6 +4,7 @@ mod email;
 mod jwt;
 mod routes;
 mod state;
+mod storage;
 
 use anyhow::Result;
 use axum::{
@@ -49,9 +50,13 @@ async fn main() -> Result<()> {
         info!("SMTP not configured — emails disabled until you set it in the admin panel");
     }
 
+    let storage = storage::Storage::from_env().await?;
+    info!("Connected to MinIO (bucket: {})", storage.bucket_recordings);
+
     let state = AppState {
         db: pool.clone(),
         jwt: jwt::JwtKeys::from_secret(jwt_secret.as_bytes()),
+        storage,
         public_url,
     };
 
@@ -116,6 +121,15 @@ async fn main() -> Result<()> {
         .route("/admin/audit", get(routes::audit_log::list_platform_audit))
         // Agent (agent-token auth, not user JWT)
         .route("/agent/heartbeat", post(routes::agent::heartbeat))
+        .route("/agent/config", get(routes::recordings::agent_get_config))
+        .route("/agent/recordings/upload", post(routes::recordings::agent_upload_recording))
+        // Recordings (user endpoints)
+        .route("/recordings", get(routes::recordings::list_recordings))
+        .route("/recordings/{id}/playback", get(routes::recordings::playback_recording))
+        .route("/recordings/{id}", delete(routes::recordings::delete_recording))
+        // Tenant settings (owner only for write)
+        .route("/tenant/settings", get(routes::recordings::get_tenant_settings))
+        .route("/tenant/settings", axum::routing::put(routes::recordings::update_tenant_recording_setting))
         // Admin (superadmin only)
         .route("/admin/test-email", post(routes::email_test::send_test_email))
         .route("/admin/stats", get(routes::admin::get_stats))

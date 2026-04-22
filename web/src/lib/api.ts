@@ -279,4 +279,32 @@ export const auditApi = {
     api.get<AuditEvent[]>('/admin/audit', { params }),
 };
 
+// --- Recordings ---
+export interface Recording {
+  id: string;
+  session_id: string;
+  machine_id: string;
+  machine_name: string;
+  size_bytes: number;
+  duration_ms: number | null;
+  content_type: string;
+  created_at: string;
+  started_by: string | null;
+}
+
+export interface TenantSettings {
+  recording_enabled: boolean;
+}
+
+export const recordingsApi = {
+  list: () => api.get<Recording[]>('/recordings'),
+  playbackUrl: (id: string) => `${import.meta.env.VITE_API_URL || ''}/recordings/${id}/playback`,
+  delete: (id: string) => api.delete(`/recordings/${id}`),
+};
+
+export const tenantSettingsApi = {
+  get: () => api.get<TenantSettings>('/tenant/settings'),
+  update: (data: TenantSettings) => api.put('/tenant/settings', data),
+};
+
 export default api;

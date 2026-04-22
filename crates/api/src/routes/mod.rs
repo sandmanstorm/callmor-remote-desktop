@@ -6,6 +6,7 @@ pub mod downloads;
 pub mod email_test;
 pub mod invitations;
 pub mod machines;
+pub mod recordings;
 pub mod sessions;
 pub mod settings;
 pub mod users;

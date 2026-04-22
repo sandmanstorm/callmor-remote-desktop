@@ -7,6 +7,7 @@ pub struct Tenant {
     pub id: Uuid,
     pub name: String,
     pub slug: String,
+    pub recording_enabled: bool,
     pub created_at: DateTime<Utc>,
 }
 

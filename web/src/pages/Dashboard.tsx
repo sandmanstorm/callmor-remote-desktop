@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { machinesApi, sessionsApi, machineAccessApi, usersApi } from '../lib/api';
 import type { Machine, CreateMachineResponse, AccessUser, User } from '../lib/api';
-import { Monitor, Plus, Trash2, LogOut, Copy, Wifi, WifiOff, Download, Users, Eye, Settings, Lock, Globe, X, Shield, Activity } from 'lucide-react';
+import { Monitor, Plus, Trash2, LogOut, Copy, Wifi, WifiOff, Download, Users, Eye, Settings, Lock, Globe, X, Shield, Activity, Film } from 'lucide-react';
 
 export default function Dashboard() {
   const { user, logout } = useAuth();
@@ -61,6 +61,7 @@ export default function Dashboard() {
         machine: data.machine_id,
         token: data.session_token,
         permission,
+        session: data.session.id,
       });
       window.open(`/viewer-test.html?${params.toString()}`, '_blank');
     } catch (err: any) {
@@ -123,6 +124,9 @@ export default function Dashboard() {
               <Shield className="w-4 h-4" /> Admin
             </button>
           )}
+          <button onClick={() => navigate('/recordings')} className="text-gray-400 hover:text-white flex items-center gap-1 text-sm" title="Recordings">
+            <Film className="w-4 h-4" /> Recordings
+          </button>
           {isAdmin && (
             <button onClick={() => navigate('/activity')} className="text-gray-400 hover:text-white flex items-center gap-1 text-sm" title="Activity log">
               <Activity className="w-4 h-4" /> Activity

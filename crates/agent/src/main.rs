@@ -163,6 +163,10 @@ async fn run_session(relay_url: &str, machine_id: &str, agent_token: &str) -> Re
     let pipeline: Arc<tokio::sync::Mutex<Option<gstreamer::Pipeline>>> =
         Arc::new(tokio::sync::Mutex::new(None));
     let pipeline_clone = pipeline.clone();
+    let current_session: Arc<tokio::sync::Mutex<Option<SessionState>>> =
+        Arc::new(tokio::sync::Mutex::new(None));
+    let api_url_owned = std::env::var("API_URL").unwrap_or_else(|_| "https://api.callmor.ai".into());
+    let agent_token_owned = agent_token.to_string();
 
     loop {
         tokio::select! {
@@ -199,8 +203,28 @@ async fn run_session(relay_url: &str, machine_id: &str, agent_token: &str) -> Re
                                             if let Some(old) = pipeline_clone.lock().await.take() {
                                                 old.set_state(gstreamer::State::Null)?;
                                             }
-                                            let pipe = create_pipeline(signal_tx.clone())?;
+
+                                            let session_id = payload.get("session_id").and_then(|v| v.as_str()).map(String::from);
+
+                                            // Ask API whether recording is enabled
+                                            let should_record = check_recording_enabled().await;
+                                            let record_path = if should_record && session_id.is_some() {
+                                                let path = format!("/tmp/callmor-rec-{}.mp4", session_id.as_ref().unwrap());
+                                                info!("Recording enabled, writing to {path}");
+                                                Some(path)
+                                            } else {
+                                                None
+                                            };
+
+                                            let pipe = create_pipeline(signal_tx.clone(), record_path.clone())?;
                                             *pipeline_clone.lock().await = Some(pipe);
+
+                                            // Remember for later upload
+                                            *current_session.lock().await = session_id.map(|sid| SessionState {
+                                                session_id: sid,
+                                                recording_path: record_path,
+                                                started_at: std::time::Instant::now(),
+                                            });
                                         }
                                         "answer" => {
                                             let sdp = payload["sdp"].as_str()
@@ -264,9 +288,19 @@ async fn run_session(relay_url: &str, machine_id: &str, agent_token: &str) -> Re
         }
     }
 
-    // Cleanup pipeline
+    // Send EOS to pipeline to finalize the recording MP4, then null it
     if let Some(pipe) = pipeline.lock().await.take() {
+        pipe.send_event(gstreamer::event::Eos::new());
+        // Wait briefly for EOS to propagate through mp4mux
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         pipe.set_state(gstreamer::State::Null)?;
+    }
+
+    // Upload recording if we have one
+    if let Some(session) = current_session.lock().await.take() {
+        if session.recording_path.is_some() {
+            upload_recording(&api_url_owned, &agent_token_owned, &session).await;
+        }
     }
 
     Ok(())
@@ -274,25 +308,49 @@ async fn run_session(relay_url: &str, machine_id: &str, agent_token: &str) -> Re
 
 fn create_pipeline(
     signal_tx: mpsc::UnboundedSender<OutgoingSignal>,
+    record_path: Option<String>,
 ) -> Result<gstreamer::Pipeline> {
-    let pipeline_str = r#"
-        ximagesrc use-damage=false show-pointer=true
-        ! videoconvert
-        ! video/x-raw,framerate=30/1
-        ! x264enc
-            tune=zerolatency
-            bitrate=2000
-            speed-preset=ultrafast
-            key-int-max=60
-            bframes=0
-            byte-stream=true
-        ! video/x-h264,profile=constrained-baseline,stream-format=byte-stream
-        ! rtph264pay config-interval=-1 pt=96
-        ! application/x-rtp,media=video,encoding-name=H264,payload=96
-        ! webrtcbin name=webrtcbin bundle-policy=max-bundle stun-server=stun://stun.l.google.com:19302
-    "#;
+    // Pipeline with optional recording branch: after x264enc, tee to both webrtcbin
+    // and a .mp4 file when recording is enabled.
+    let pipeline_str = if let Some(path) = &record_path {
+        format!(r#"
+            ximagesrc use-damage=false show-pointer=true
+            ! videoconvert
+            ! video/x-raw,framerate=30/1
+            ! x264enc
+                tune=zerolatency
+                bitrate=2000
+                speed-preset=ultrafast
+                key-int-max=60
+                bframes=0
+                byte-stream=true
+            ! video/x-h264,profile=constrained-baseline,stream-format=byte-stream
+            ! tee name=t
+            t. ! queue ! rtph264pay config-interval=-1 pt=96
+               ! application/x-rtp,media=video,encoding-name=H264,payload=96
+               ! webrtcbin name=webrtcbin bundle-policy=max-bundle stun-server=stun://stun.l.google.com:19302
+            t. ! queue ! h264parse ! mp4mux streamable=true fragment-duration=1000 ! filesink location="{path}" sync=false
+        "#)
+    } else {
+        r#"
+            ximagesrc use-damage=false show-pointer=true
+            ! videoconvert
+            ! video/x-raw,framerate=30/1
+            ! x264enc
+                tune=zerolatency
+                bitrate=2000
+                speed-preset=ultrafast
+                key-int-max=60
+                bframes=0
+                byte-stream=true
+            ! video/x-h264,profile=constrained-baseline,stream-format=byte-stream
+            ! rtph264pay config-interval=-1 pt=96
+            ! application/x-rtp,media=video,encoding-name=H264,payload=96
+            ! webrtcbin name=webrtcbin bundle-policy=max-bundle stun-server=stun://stun.l.google.com:19302
+        "#.to_string()
+    };
 
-    let pipeline = gstreamer::parse::launch(pipeline_str)?
+    let pipeline = gstreamer::parse::launch(&pipeline_str)?
         .downcast::<gstreamer::Pipeline>()
         .map_err(|_| anyhow::anyhow!("Failed to downcast to Pipeline"))?;
 
@@ -459,4 +517,95 @@ fn create_pipeline(
     });
 
     Ok(pipeline)
+}
+
+// ====================================================================
+// Recording support
+// ====================================================================
+
+struct SessionState {
+    session_id: String,
+    recording_path: Option<String>,
+    started_at: std::time::Instant,
+}
+
+/// Query the API to see if recording is enabled for this agent's tenant.
+async fn check_recording_enabled() -> bool {
+    let api_url = std::env::var("API_URL").unwrap_or_else(|_| "https://api.callmor.ai".into());
+    let token = std::env::var("AGENT_TOKEN").unwrap_or_default();
+    if token.is_empty() {
+        return false;
+    }
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(format!("{api_url}/agent/config"))
+        .header("X-Agent-Token", token)
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await;
+
+    match resp {
+        Ok(r) if r.status().is_success() => {
+            if let Ok(body) = r.json::<serde_json::Value>().await {
+                return body.get("recording_enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+            }
+            false
+        }
+        _ => false,
+    }
+}
+
+/// Upload a recording file to the API, then delete the local file.
+async fn upload_recording(api_url: &str, agent_token: &str, session: &SessionState) {
+    let Some(path) = &session.recording_path else { return };
+    let duration_ms = session.started_at.elapsed().as_millis() as i64;
+
+    // Wait briefly for mp4mux to finish writing the file after EOS
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    let bytes = match tokio::fs::read(path).await {
+        Ok(b) => b,
+        Err(e) => {
+            warn!("Failed to read recording file {path}: {e}");
+            return;
+        }
+    };
+
+    if bytes.is_empty() {
+        warn!("Recording file {path} is empty; skipping upload");
+        let _ = tokio::fs::remove_file(path).await;
+        return;
+    }
+
+    info!("Uploading recording ({} bytes, {} ms duration)...", bytes.len(), duration_ms);
+
+    let client = reqwest::Client::new();
+    let url = format!(
+        "{api_url}/agent/recordings/upload?session_id={}&duration_ms={}",
+        session.session_id, duration_ms
+    );
+    let result = client
+        .post(&url)
+        .header("X-Agent-Token", agent_token)
+        .header("Content-Type", "video/mp4")
+        .body(bytes)
+        .timeout(std::time::Duration::from_secs(300))
+        .send()
+        .await;
+
+    match result {
+        Ok(r) if r.status().is_success() => {
+            info!("Recording uploaded successfully");
+        }
+        Ok(r) => {
+            warn!("Recording upload failed: HTTP {}", r.status());
+        }
+        Err(e) => {
+            warn!("Recording upload error: {e}");
+        }
+    }
+
+    // Remove local file regardless of outcome (don't accumulate on disk)
+    let _ = tokio::fs::remove_file(path).await;
 }
