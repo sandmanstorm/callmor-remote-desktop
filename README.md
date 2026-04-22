@@ -108,15 +108,42 @@ npm run dev
 ```bash
 # Build release binaries
 cargo build --release
+cd web && npm run build && cd ..
 
-# Install service files
-sudo cp deploy/callmor-relay.service /etc/systemd/system/
-sudo cp deploy/callmor-api.service /etc/systemd/system/
+# Install all service files
+sudo cp deploy/*.service /etc/systemd/system/
 sudo systemctl daemon-reload
 
-# Enable and start
-sudo systemctl enable --now callmor-relay
-sudo systemctl enable --now callmor-api
+# Enable and start (in order)
+sudo systemctl enable --now callmor-infra    # Postgres, Redis, MinIO, coturn
+sudo systemctl enable --now callmor-api      # Axum REST API on :3000
+sudo systemctl enable --now callmor-relay    # WebSocket signaling on :8080
+sudo systemctl enable --now callmor-web      # React frontend on :5173
+sudo systemctl enable --now callmor-xvfb     # Virtual display (demo only)
+sudo systemctl enable --now callmor-agent    # Test agent (demo only)
+```
+
+### Service overview
+
+| Service | What it runs | Required? |
+|---------|-------------|-----------|
+| callmor-infra | Docker Compose (Postgres, Redis, MinIO, coturn) | Always |
+| callmor-api | Axum REST API binary | Always |
+| callmor-relay | WebSocket signaling binary | Always |
+| callmor-web | Static frontend via `npx serve` | Always |
+| callmor-xvfb | Xvfb virtual display on :99 | Demo only |
+| callmor-agent | Test agent on Xvfb display | Demo only |
+
+### Downloading the Linux agent installer
+
+- From the dashboard: click **Download Agent (.deb)** button
+- Direct URL: `https://api.callmor.ai/downloads/agent/linux/deb`
+
+Install on any Debian/Ubuntu machine:
+```bash
+sudo dpkg -i callmor-agent_0.1.0_amd64.deb
+sudo nano /etc/callmor-agent/agent.conf  # paste AGENT_TOKEN and MACHINE_ID from dashboard
+sudo systemctl enable --now callmor-agent
 ```
 
 ## Project Structure

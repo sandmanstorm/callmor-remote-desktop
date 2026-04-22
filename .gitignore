@@ -28,3 +28,4 @@ minio-data/
 
 # Logs
 *.log
+.env.agent

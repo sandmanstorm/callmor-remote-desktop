@@ -1,0 +1,21 @@
+[Unit]
+Description=Callmor Remote Desktop Agent (demo on Xvfb :99)
+After=network-online.target callmor-xvfb.service callmor-api.service callmor-relay.service
+Wants=network-online.target callmor-xvfb.service
+
+[Service]
+Type=simple
+User=pasharobert
+WorkingDirectory=/home/pasharobert/callmor-remote-desktop
+EnvironmentFile=/home/pasharobert/callmor-remote-desktop/.env.agent
+Environment=DISPLAY=:99
+ExecStart=/home/pasharobert/callmor-remote-desktop/target/release/callmor-agent
+Restart=always
+RestartSec=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=callmor-agent
+
+[Install]
+WantedBy=multi-user.target

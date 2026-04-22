@@ -1,7 +1,7 @@
 [Unit]
 Description=Callmor Relay Server (WebSocket Signaling)
-After=network.target docker.service
-Wants=docker.service
+After=network-online.target docker.service postgresql.service
+Wants=network-online.target
 
 [Service]
 Type=simple
@@ -9,19 +9,12 @@ User=pasharobert
 WorkingDirectory=/home/pasharobert/callmor-remote-desktop
 EnvironmentFile=/home/pasharobert/callmor-remote-desktop/.env
 ExecStart=/home/pasharobert/callmor-remote-desktop/target/release/callmor-relay
-Restart=on-failure
+Restart=always
 RestartSec=5
 
-# Logging
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=callmor-relay
-
-# Security hardening
-NoNewPrivileges=yes
-ProtectSystem=strict
-ProtectHome=read-only
-ReadWritePaths=/home/pasharobert/callmor-remote-desktop
 
 [Install]
 WantedBy=multi-user.target

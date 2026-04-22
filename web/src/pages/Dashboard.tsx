@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { machinesApi, sessionsApi } from '../lib/api';
 import type { Machine, CreateMachineResponse } from '../lib/api';
-import { Monitor, Plus, Trash2, LogOut, Copy, Wifi, WifiOff } from 'lucide-react';
+import { Monitor, Plus, Trash2, LogOut, Copy, Wifi, WifiOff, Download } from 'lucide-react';
 
 export default function Dashboard() {
   const { user, logout } = useAuth();
@@ -89,12 +89,21 @@ export default function Dashboard() {
       <main className="max-w-5xl mx-auto px-6 py-8">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-xl font-semibold text-white">Machines</h2>
-          <button
-            onClick={() => { setShowAddModal(true); setNewMachineName(''); setNewMachineResult(null); }}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-medium"
-          >
-            <Plus className="w-4 h-4" /> Add Machine
-          </button>
+          <div className="flex items-center gap-2">
+            <a
+              href={`${import.meta.env.VITE_API_URL || ''}/downloads/agent/linux/deb`}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 rounded text-sm font-medium"
+              title="Download Linux .deb installer"
+            >
+              <Download className="w-4 h-4" /> Download Agent (.deb)
+            </a>
+            <button
+              onClick={() => { setShowAddModal(true); setNewMachineName(''); setNewMachineResult(null); }}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-medium"
+            >
+              <Plus className="w-4 h-4" /> Add Machine
+            </button>
+          </div>
         </div>
 
         {loading ? (

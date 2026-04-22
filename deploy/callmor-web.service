@@ -1,0 +1,19 @@
+[Unit]
+Description=Callmor Web Frontend (Static Files)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pasharobert
+WorkingDirectory=/home/pasharobert/callmor-remote-desktop/web
+ExecStart=/usr/bin/npx serve -l 5173 -s dist
+Restart=always
+RestartSec=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=callmor-web
+
+[Install]
+WantedBy=multi-user.target
