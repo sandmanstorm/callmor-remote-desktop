@@ -7,6 +7,7 @@
 #[cfg(windows)]
 fn main() {
     embed_resources();
+    link_static_cxx_runtime();
 }
 
 #[cfg(all(not(windows), target_os = "linux"))]
@@ -14,11 +15,23 @@ fn main() {
     // Cross-compiling from Linux to Windows: use x86_64-w64-mingw32-windres.
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         embed_resources();
+        link_static_cxx_runtime();
     }
 }
 
 #[cfg(all(not(windows), not(target_os = "linux")))]
 fn main() {}
+
+/// When cross-compiling for Windows with mingw-w64, openh264-sys2 emits a
+/// `cargo:rustc-link-lib=dylib=stdc++` directive that explicitly pulls the
+/// libstdc++-6.dll import, so we can't statically link via build-script link
+/// args — the dylib= directive wins. The installer bundles the three mingw
+/// runtime DLLs alongside callmor-agent.exe instead (handled by NSIS).
+#[cfg(any(windows, target_os = "linux"))]
+fn link_static_cxx_runtime() {
+    // Intentionally no-op — kept as a stable entry point in case we migrate
+    // to MSVC or fork openh264-sys2 later.
+}
 
 #[cfg(any(windows, target_os = "linux"))]
 fn embed_resources() {

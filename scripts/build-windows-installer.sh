@@ -22,6 +22,22 @@ cd "$REPO_ROOT"
 cargo build -p callmor-agent-win --target x86_64-pc-windows-gnu --release 2>&1 | tail -3
 x86_64-w64-mingw32-strip "$BIN"
 
+# The Rust agent links against libstdc++-6.dll (via openh264's C++ code), plus
+# libgcc_s_seh-1.dll and libwinpthread-1.dll. mingw ships these; we bundle the
+# posix-thread flavor that rustc/cargo uses by default.
+DLL_SRC="/usr/lib/gcc/x86_64-w64-mingw32/14-posix"
+DLL_STAGE="$REPO_ROOT/target/windows-dlls"
+mkdir -p "$DLL_STAGE"
+for dll in libstdc++-6.dll libgcc_s_seh-1.dll; do
+    [ -f "$DLL_SRC/$dll" ] || { echo "ERROR: $DLL_SRC/$dll not found"; exit 1; }
+    cp "$DLL_SRC/$dll" "$DLL_STAGE/"
+done
+# libwinpthread lives under /usr/x86_64-w64-mingw32/lib on Debian
+WINP_SRC="/usr/x86_64-w64-mingw32/lib/libwinpthread-1.dll"
+[ -f "$WINP_SRC" ] || { echo "ERROR: $WINP_SRC not found"; exit 1; }
+cp "$WINP_SRC" "$DLL_STAGE/"
+echo "Staged mingw runtime DLLs in $DLL_STAGE"
+
 build_installer() {
     local mode="$1"        # tenant | adhoc
     local out_dir="$2"
@@ -32,6 +48,7 @@ build_installer() {
     makensis -V2 \
         -DVERSION="$VERSION" \
         -DBIN="$BIN" \
+        -DDLLDIR="$DLL_STAGE" \
         -DOUTPUT="$installer" \
         -DMODE="$mode" \
         "$REPO_ROOT/packaging/windows/installer.nsi" > /dev/null

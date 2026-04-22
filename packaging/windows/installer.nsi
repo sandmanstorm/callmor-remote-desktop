@@ -14,6 +14,13 @@
     !error "Define BIN=/path/to/callmor-agent.exe"
 !endif
 
+; Directory containing the three mingw-w64 runtime DLLs that callmor-agent.exe
+; depends on (libstdc++-6.dll, libgcc_s_seh-1.dll, libwinpthread-1.dll). Built
+; by scripts/build-windows-installer.sh.
+!ifndef DLLDIR
+    !error "Define DLLDIR=/path/containing/mingw-runtime-dlls"
+!endif
+
 ; MODE=tenant -> bakes in an enrollment-token placeholder (per-tenant download)
 ; MODE=adhoc  -> writes ADHOC=1; agent will self-register on first run and
 ;                display an access code + PIN to the user
@@ -75,6 +82,12 @@ Section "Install"
     ; Copy the agent binary
     File "/oname=callmor-agent.exe" "${BIN}"
 
+    ; Bundle the mingw-w64 runtime DLLs callmor-agent.exe links against.
+    ; They live next to the .exe so Windows' DLL search path finds them.
+    File "${DLLDIR}\libstdc++-6.dll"
+    File "${DLLDIR}\libgcc_s_seh-1.dll"
+    File "${DLLDIR}\libwinpthread-1.dll"
+
     ; Switch to machine-wide vars so $APPDATA -> C:\ProgramData
     SetShellVarContext all
     CreateDirectory "$APPDATA\Callmor"
@@ -134,6 +147,9 @@ Section "Uninstall"
 
     ; Remove files
     Delete "$INSTDIR\callmor-agent.exe"
+    Delete "$INSTDIR\libstdc++-6.dll"
+    Delete "$INSTDIR\libgcc_s_seh-1.dll"
+    Delete "$INSTDIR\libwinpthread-1.dll"
     Delete "$INSTDIR\uninstall.exe"
     RMDir "$INSTDIR"
 
