@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
-import { machinesApi } from '../lib/api';
+import { machinesApi, sessionsApi } from '../lib/api';
 import type { Machine, CreateMachineResponse } from '../lib/api';
 import { Monitor, Plus, Trash2, LogOut, Copy, Wifi, WifiOff } from 'lucide-react';
 
@@ -48,10 +48,18 @@ export default function Dashboard() {
     fetchMachines();
   };
 
-  const handleConnect = (machine: Machine) => {
-    // Open viewer in new tab with machine ID
-    const relayUrl = import.meta.env.VITE_RELAY_URL || 'ws://localhost:8080';
-    window.open(`/viewer-test.html?relay=${encodeURIComponent(relayUrl)}&machine=${machine.id}`, '_blank');
+  const handleConnect = async (machine: Machine) => {
+    try {
+      const { data } = await sessionsApi.create(machine.id);
+      const params = new URLSearchParams({
+        relay: data.relay_url,
+        machine: data.machine_id,
+        token: data.session_token,
+      });
+      window.open(`/viewer-test.html?${params.toString()}`, '_blank');
+    } catch (err: any) {
+      alert(err.response?.data || 'Failed to start session');
+    }
   };
 
   const handleLogout = () => {

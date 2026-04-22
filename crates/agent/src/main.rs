@@ -58,16 +58,33 @@ async fn main() -> Result<()> {
         .init();
 
     let relay_url = std::env::var("RELAY_URL").unwrap_or_else(|_| "ws://127.0.0.1:8080".into());
+    let api_url = std::env::var("API_URL").unwrap_or_else(|_| "https://api.callmor.ai".into());
     let machine_id = std::env::var("MACHINE_ID").unwrap_or_else(|_| "agent-linux-1".into());
+    let agent_token = std::env::var("AGENT_TOKEN").unwrap_or_default();
 
     info!("Callmor Agent v{}", env!("CARGO_PKG_VERSION"));
-    info!("Relay: {relay_url}, Machine ID: {machine_id}");
+    info!("Relay: {relay_url}, API: {api_url}, Machine ID: {machine_id}");
+
+    if agent_token.is_empty() || agent_token == "CHANGE_ME" {
+        error!("AGENT_TOKEN is not configured. Set it in /etc/callmor-agent/agent.conf or env.");
+        std::process::exit(1);
+    }
 
     gstreamer::init()?;
 
+    // Spawn heartbeat task
+    {
+        let api_url = api_url.clone();
+        let token = agent_token.clone();
+        let mid = machine_id.clone();
+        tokio::spawn(async move {
+            heartbeat_loop(api_url, token, mid).await;
+        });
+    }
+
     loop {
         info!("Connecting to relay...");
-        match run_session(&relay_url, &machine_id).await {
+        match run_session(&relay_url, &machine_id, &agent_token).await {
             Ok(()) => info!("Session ended cleanly"),
             Err(e) => error!("Session error: {e:#}"),
         }
@@ -76,17 +93,61 @@ async fn main() -> Result<()> {
     }
 }
 
-async fn run_session(relay_url: &str, machine_id: &str) -> Result<()> {
+async fn heartbeat_loop(api_url: String, agent_token: String, machine_id: String) {
+    let client = reqwest::Client::new();
+    let hostname = hostname_info();
+    let os = "linux";
+
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+    loop {
+        interval.tick().await;
+
+        let result = client
+            .post(format!("{api_url}/agent/heartbeat"))
+            .header("X-Agent-Token", &agent_token)
+            .json(&serde_json::json!({
+                "machine_id": machine_id,
+                "hostname": hostname,
+                "os": os,
+            }))
+            .send()
+            .await;
+
+        match result {
+            Ok(resp) if resp.status().is_success() => {
+                tracing::debug!("Heartbeat OK");
+            }
+            Ok(resp) => {
+                warn!("Heartbeat failed: HTTP {}", resp.status());
+            }
+            Err(e) => {
+                warn!("Heartbeat error: {e}");
+            }
+        }
+    }
+}
+
+fn hostname_info() -> String {
+    std::process::Command::new("hostname")
+        .output()
+        .ok()
+        .and_then(|out| String::from_utf8(out.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|| "unknown".into())
+}
+
+async fn run_session(relay_url: &str, machine_id: &str, agent_token: &str) -> Result<()> {
     let (ws_stream, _) = tokio_tungstenite::connect_async(relay_url)
         .await
         .context("Failed to connect to relay")?;
 
     let (mut ws_tx, mut ws_rx) = ws_stream.split();
 
-    // Send Hello
+    // Send Hello with token
     let hello = SignalMessage::Hello {
         role: Role::Agent,
         machine_id: machine_id.to_string(),
+        token: Some(agent_token.to_string()),
     };
     ws_tx
         .send(Message::Text(serde_json::to_string(&hello)?.into()))

@@ -31,11 +31,26 @@
   <div class="toolbar">
     <label>Relay: <input id="url" value="ws://localhost:8080" size="24"></label>
     <label>Machine: <input id="machineId" value="agent-linux-1" size="16"></label>
+    <input id="token" type="hidden" value="">
     <button id="connectBtn" onclick="connect()">Connect</button>
     <button id="disconnectBtn" onclick="disconnect()" disabled class="btn-red">Disconnect</button>
     <span id="statusBadge" class="status status-disconnected">Disconnected</span>
     <button onclick="document.getElementById('log').classList.toggle('visible')" style="margin-left:auto;background:#333;border-color:#555;">Log</button>
   </div>
+
+  <script>
+    // Auto-populate from URL params and auto-connect
+    (function() {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has('relay')) document.getElementById('url').value = params.get('relay');
+      if (params.has('machine')) document.getElementById('machineId').value = params.get('machine');
+      if (params.has('token')) document.getElementById('token').value = params.get('token');
+      if (params.has('token')) {
+        // Auto-connect when session token is provided
+        setTimeout(() => document.getElementById('connectBtn').click(), 100);
+      }
+    })();
+  </script>
 
   <div class="viewer">
     <video id="remoteVideo" autoplay playsinline tabindex="0"></video>
@@ -141,6 +156,7 @@
     async function connect() {
       const url = document.getElementById('url').value;
       const machineId = document.getElementById('machineId').value;
+      const sessionToken = document.getElementById('token').value;
 
       document.getElementById('connectBtn').disabled = true;
       setStatus('Connecting...', 'connecting');
@@ -149,7 +165,9 @@
       ws = new WebSocket(url);
 
       ws.onopen = () => {
-        ws.send(JSON.stringify({ type: 'hello', role: 'browser', machine_id: machineId }));
+        const hello = { type: 'hello', role: 'browser', machine_id: machineId };
+        if (sessionToken) hello.token = sessionToken;
+        ws.send(JSON.stringify(hello));
         log(`Connected to relay as browser for "${machineId}"`, 'ok');
         setTimeout(() => {
           sendSignal({ signal: 'ready' });

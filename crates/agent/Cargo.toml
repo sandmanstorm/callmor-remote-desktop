@@ -22,3 +22,4 @@ gstreamer = { version = "0.23", features = ["v1_26"] }
 gstreamer-sdp = { version = "0.23", features = ["v1_26"] }
 gstreamer-webrtc = { version = "0.23", features = ["v1_22"] }
 x11rb = { version = "0.13", features = ["xtest"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }

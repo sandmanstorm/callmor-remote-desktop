@@ -4,6 +4,7 @@ use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation}
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+/// Access token claims — used for dashboard API requests.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Claims {
     pub sub: Uuid,        // user_id
@@ -11,6 +12,21 @@ pub struct Claims {
     pub role: String,
     pub exp: i64,
     pub iat: i64,
+}
+
+/// Session token claims — short-lived, bound to a specific machine.
+/// Used by browser to authenticate to the relay.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SessionClaims {
+    pub sub: Uuid,          // user_id
+    pub tenant_id: Uuid,
+    pub machine_id: Uuid,
+    pub session_id: Uuid,
+    pub permission: String, // 'view_only', 'full_control'
+    pub exp: i64,
+    pub iat: i64,
+    #[serde(rename = "type")]
+    pub token_type: String, // always "session"
 }
 
 #[derive(Clone)]
@@ -39,8 +55,38 @@ impl JwtKeys {
         Ok(encode(&Header::default(), &claims, &self.encoding)?)
     }
 
+    pub fn create_session_token(
+        &self,
+        user_id: Uuid,
+        tenant_id: Uuid,
+        machine_id: Uuid,
+        session_id: Uuid,
+        permission: &str,
+    ) -> Result<String> {
+        let now = Utc::now();
+        let claims = SessionClaims {
+            sub: user_id,
+            tenant_id,
+            machine_id,
+            session_id,
+            permission: permission.to_string(),
+            iat: now.timestamp(),
+            exp: (now + Duration::minutes(2)).timestamp(),
+            token_type: "session".into(),
+        };
+        Ok(encode(&Header::default(), &claims, &self.encoding)?)
+    }
+
     pub fn validate_token(&self, token: &str) -> Result<Claims> {
         let data = decode::<Claims>(token, &self.decoding, &Validation::default())?;
+        Ok(data.claims)
+    }
+
+    pub fn validate_session_token(&self, token: &str) -> Result<SessionClaims> {
+        let data = decode::<SessionClaims>(token, &self.decoding, &Validation::default())?;
+        if data.claims.token_type != "session" {
+            anyhow::bail!("Not a session token");
+        }
         Ok(data.claims)
     }
 }

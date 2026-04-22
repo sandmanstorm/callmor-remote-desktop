@@ -91,4 +91,16 @@ export const machinesApi = {
   delete: (id: string) => api.delete(`/machines/${id}`),
 };
 
+export interface SessionResponse {
+  session: { id: string; machine_id: string; started_at: string };
+  session_token: string;
+  machine_id: string;
+  relay_url: string;
+}
+
+export const sessionsApi = {
+  create: (machineId: string, permission = 'full_control') =>
+    api.post<SessionResponse>('/sessions', { machine_id: machineId, permission }),
+};
+
 export default api;

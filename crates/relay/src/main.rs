@@ -1,6 +1,10 @@
+mod auth;
+
 use anyhow::Result;
 use callmor_shared::protocol::{Role, SignalMessage};
 use futures_util::{SinkExt, StreamExt};
+use jsonwebtoken::DecodingKey;
+use sqlx::PgPool;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -10,10 +14,8 @@ use tokio_tungstenite::tungstenite::Message;
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
 
-/// A handle to send messages to a connected client.
 type ClientTx = mpsc::UnboundedSender<String>;
 
-/// One room = one machine. Has at most one agent and zero or more browsers.
 struct Room {
     agent: Option<ClientTx>,
     browsers: HashMap<u64, ClientTx>,
@@ -21,21 +23,23 @@ struct Room {
 
 impl Room {
     fn new() -> Self {
-        Self {
-            agent: None,
-            browsers: HashMap::new(),
-        }
+        Self { agent: None, browsers: HashMap::new() }
     }
-
     fn is_empty(&self) -> bool {
         self.agent.is_none() && self.browsers.is_empty()
     }
 }
 
-/// Global state: machine_id → Room
 type Rooms = Arc<RwLock<HashMap<String, Room>>>;
 
-/// Monotonically increasing ID for browser connections.
+#[derive(Clone)]
+struct RelayState {
+    rooms: Rooms,
+    pool: PgPool,
+    jwt_key: Arc<DecodingKey>,
+    auth_required: bool,
+}
+
 static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 #[tokio::main]
@@ -50,18 +54,36 @@ async fn main() -> Result<()> {
         .unwrap_or_else(|_| "8080".into())
         .parse()?;
 
+    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    let jwt_secret = std::env::var("JWT_SECRET").unwrap_or_else(|_| {
+        let db_pass = std::env::var("POSTGRES_PASSWORD").unwrap_or_else(|_| "dev-secret".into());
+        format!("callmor-jwt-{db_pass}")
+    });
+
+    let auth_required = std::env::var("RELAY_AUTH_REQUIRED")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(true); // default: auth required
+
+    let pool = callmor_shared::db::create_pool(&database_url).await?;
+    info!("Relay connected to PostgreSQL");
+
+    let state = RelayState {
+        rooms: Arc::new(RwLock::new(HashMap::new())),
+        pool,
+        jwt_key: Arc::new(DecodingKey::from_secret(jwt_secret.as_bytes())),
+        auth_required,
+    };
+
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let listener = TcpListener::bind(addr).await?;
-    let rooms: Rooms = Arc::new(RwLock::new(HashMap::new()));
-
-    info!("Callmor Relay listening on {addr}");
+    info!("Callmor Relay listening on {addr} (auth_required={auth_required})");
 
     loop {
         match listener.accept().await {
             Ok((stream, peer)) => {
-                let rooms = rooms.clone();
+                let state = state.clone();
                 tokio::spawn(async move {
-                    if let Err(e) = handle_connection(stream, peer, rooms).await {
+                    if let Err(e) = handle_connection(stream, peer, state).await {
                         warn!("Connection {peer} error: {e}");
                     }
                 });
@@ -71,45 +93,80 @@ async fn main() -> Result<()> {
     }
 }
 
-async fn handle_connection(stream: TcpStream, peer: SocketAddr, rooms: Rooms) -> Result<()> {
+async fn send_error_and_close(
+    ws_tx: &mut futures_util::stream::SplitSink<
+        tokio_tungstenite::WebSocketStream<TcpStream>,
+        Message,
+    >,
+    msg: &str,
+) {
+    let err = SignalMessage::Error { message: msg.into() };
+    if let Ok(json) = serde_json::to_string(&err) {
+        let _ = ws_tx.send(Message::Text(json.into())).await;
+    }
+    let _ = ws_tx.send(Message::Close(None)).await;
+}
+
+async fn handle_connection(stream: TcpStream, peer: SocketAddr, state: RelayState) -> Result<()> {
     let ws_stream = tokio_tungstenite::accept_async(stream).await?;
     let (mut ws_tx, mut ws_rx) = ws_stream.split();
 
     info!("{peer}: WebSocket connected, waiting for Hello");
 
-    // Wait for the first message to be a Hello.
-    let (role, machine_id) = loop {
+    // Wait for Hello
+    let (role, machine_id, token) = loop {
         match ws_rx.next().await {
             Some(Ok(Message::Text(text))) => {
                 let text_str = text.to_string();
                 match serde_json::from_str::<SignalMessage>(&text_str) {
-                    Ok(SignalMessage::Hello { role, machine_id }) => {
-                        break (role, machine_id);
+                    Ok(SignalMessage::Hello { role, machine_id, token }) => {
+                        break (role, machine_id, token);
                     }
                     _ => {
-                        let err = SignalMessage::Error {
-                            message: "First message must be a Hello".into(),
-                        };
-                        let msg = serde_json::to_string(&err)?;
-                        ws_tx.send(Message::Text(msg.into())).await?;
+                        send_error_and_close(&mut ws_tx, "First message must be a Hello").await;
+                        return Ok(());
                     }
                 }
             }
             Some(Ok(Message::Close(_))) | None => return Ok(()),
-            Some(Ok(_)) => {} // ignore ping/pong/binary
+            Some(Ok(_)) => {}
             Some(Err(e)) => return Err(e.into()),
         }
     };
 
-    info!("{peer}: Hello as {role:?} for machine {machine_id}");
+    // --- Authentication ---
+    if state.auth_required {
+        let token = match token.as_deref() {
+            Some(t) => t,
+            None => {
+                warn!("{peer}: Missing token for {role:?}");
+                send_error_and_close(&mut ws_tx, "Missing auth token").await;
+                return Ok(());
+            }
+        };
 
-    // Create a channel for outbound messages to this client.
+        let validation_result = match role {
+            Role::Agent => auth::validate_agent_token(&state.pool, token, &machine_id).await,
+            Role::Browser => {
+                auth::validate_session_token(&state.jwt_key, token, &machine_id).map(|_| uuid::Uuid::nil())
+            }
+        };
+
+        if let Err(e) = validation_result {
+            warn!("{peer}: Auth failed for {role:?} machine={machine_id}: {e}");
+            send_error_and_close(&mut ws_tx, "Authentication failed").await;
+            return Ok(());
+        }
+    }
+
+    info!("{peer}: Hello as {role:?} for machine {machine_id} (authenticated)");
+
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();
     let conn_id = NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-    // Register in the room.
+    // Register in room
     {
-        let mut rooms_guard = rooms.write().await;
+        let mut rooms_guard = state.rooms.write().await;
         let room = rooms_guard.entry(machine_id.clone()).or_insert_with(Room::new);
         match role {
             Role::Agent => {
@@ -124,7 +181,6 @@ async fn handle_connection(stream: TcpStream, peer: SocketAddr, rooms: Rooms) ->
         }
     }
 
-    // Spawn a task to forward outbound channel messages to the WebSocket.
     let (done_tx, mut done_rx) = tokio::sync::oneshot::channel::<()>();
     let send_task = tokio::spawn(async move {
         loop {
@@ -136,7 +192,7 @@ async fn handle_connection(stream: TcpStream, peer: SocketAddr, rooms: Rooms) ->
                                 break;
                             }
                         }
-                        None => break, // channel closed
+                        None => break,
                     }
                 }
                 _ = &mut done_rx => break,
@@ -144,24 +200,22 @@ async fn handle_connection(stream: TcpStream, peer: SocketAddr, rooms: Rooms) ->
         }
     });
 
-    // Read loop: forward incoming messages to the peer(s).
+    // Read loop
     loop {
         match ws_rx.next().await {
             Some(Ok(Message::Text(text))) => {
                 let text_str = text.to_string();
                 match serde_json::from_str::<SignalMessage>(&text_str) {
                     Ok(SignalMessage::Relay { .. }) => {
-                        let rooms_guard = rooms.read().await;
+                        let rooms_guard = state.rooms.read().await;
                         if let Some(room) = rooms_guard.get(&machine_id) {
                             match role {
                                 Role::Agent => {
-                                    // Agent → all browsers
                                     for browser_tx in room.browsers.values() {
                                         let _ = browser_tx.send(text_str.clone());
                                     }
                                 }
                                 Role::Browser => {
-                                    // Browser → agent
                                     if let Some(agent_tx) = &room.agent {
                                         let _ = agent_tx.send(text_str.clone());
                                     }
@@ -171,18 +225,16 @@ async fn handle_connection(stream: TcpStream, peer: SocketAddr, rooms: Rooms) ->
                     }
                     Ok(SignalMessage::Hello { .. }) => {
                         let err = SignalMessage::Error {
-                            message: "Already registered, Hello sent twice".into(),
+                            message: "Already registered".into(),
                         };
                         let _ = tx.send(serde_json::to_string(&err)?);
                     }
-                    Ok(SignalMessage::Error { .. }) => {} // ignore client errors
-                    Err(e) => {
-                        warn!("{peer}: Invalid message: {e}");
-                    }
+                    Ok(SignalMessage::Error { .. }) => {}
+                    Err(e) => warn!("{peer}: Invalid message: {e}"),
                 }
             }
             Some(Ok(Message::Close(_))) | None => break,
-            Some(Ok(_)) => {} // ping/pong/binary handled by tungstenite
+            Some(Ok(_)) => {}
             Some(Err(e)) => {
                 warn!("{peer}: WebSocket error: {e}");
                 break;
@@ -192,9 +244,9 @@ async fn handle_connection(stream: TcpStream, peer: SocketAddr, rooms: Rooms) ->
 
     info!("{peer}: Disconnected ({role:?} for machine {machine_id})");
 
-    // Cleanup: remove from room.
+    // Cleanup
     {
-        let mut rooms_guard = rooms.write().await;
+        let mut rooms_guard = state.rooms.write().await;
         if let Some(room) = rooms_guard.get_mut(&machine_id) {
             match role {
                 Role::Agent => {
@@ -211,7 +263,6 @@ async fn handle_connection(stream: TcpStream, peer: SocketAddr, rooms: Rooms) ->
         }
     }
 
-    // Signal the send task to stop.
     let _ = done_tx.send(());
     let _ = send_task.await;
 

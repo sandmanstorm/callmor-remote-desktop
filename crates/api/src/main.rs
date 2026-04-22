@@ -39,9 +39,21 @@ async fn main() -> Result<()> {
     info!("Connected to PostgreSQL");
 
     let state = AppState {
-        db: pool,
+        db: pool.clone(),
         jwt: jwt::JwtKeys::from_secret(jwt_secret.as_bytes()),
     };
+
+    // Background sweep: mark stale machines offline every 30s
+    {
+        let pool = pool.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+            loop {
+                interval.tick().await;
+                routes::agent::sweep_stale(&pool).await;
+            }
+        });
+    }
 
     let port: u16 = std::env::var("API_PORT")
         .unwrap_or_else(|_| "3000".into())
@@ -71,6 +83,8 @@ async fn main() -> Result<()> {
         .route("/sessions/active", get(routes::sessions::list_active_sessions))
         // Downloads
         .route("/downloads/agent/linux/deb", get(routes::downloads::download_agent_deb))
+        // Agent (agent-token auth, not user JWT)
+        .route("/agent/heartbeat", post(routes::agent::heartbeat))
         .layer(cors)
         .with_state(state);
 
