@@ -42,6 +42,14 @@ export default function Viewer() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [showLogs, setShowLogs] = useState(false);
   const [needsClickToPlay, setNeedsClickToPlay] = useState(false);
+  const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const [stats, setStats] = useState({
+    bytes: 0,
+    frames: 0,
+    lost: 0,
+    secondsSinceFrame: 0,
+  });
+  const lastFrameTsRef = useRef<number>(Date.now());
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -310,30 +318,45 @@ export default function Viewer() {
         log(`Video error: ${video.error?.message || 'unknown'}`, 'err'),
       );
 
+      // Muted autoplay is always allowed by every browser — we don't have
+      // audio anyway. This is the single most important fix for the
+      // "blank screen + click-to-play not working" symptom.
+      video.muted = true;
       video
         .play()
         .then(() => {
           log('video.play() resolved', 'ok');
           setNeedsClickToPlay(false);
+          setPlaybackError(null);
         })
         .catch((err: Error) => {
           log(`video.play() rejected: ${err.name}: ${err.message}. Click to unblock.`, 'err');
           setNeedsClickToPlay(true);
+          setPlaybackError(`${err.name}: ${err.message}`);
         });
 
       statsIntervalRef.current = window.setInterval(async () => {
         if (!pcRef.current) return;
         try {
-          const stats = await pcRef.current.getStats(e.track);
-          stats.forEach((report: any) => {
+          const reports = await pcRef.current.getStats(e.track);
+          reports.forEach((report: any) => {
             if (report.type === 'inbound-rtp' && report.kind === 'video') {
               const dBytes = report.bytesReceived - lastStatsRef.current.bytes;
               const dFrames =
                 (report.framesDecoded || 0) - lastStatsRef.current.frames;
+              if (dFrames > 0) lastFrameTsRef.current = Date.now();
               lastStatsRef.current = {
                 bytes: report.bytesReceived,
                 frames: report.framesDecoded || 0,
               };
+              setStats({
+                bytes: report.bytesReceived,
+                frames: report.framesDecoded || 0,
+                lost: report.packetsLost || 0,
+                secondsSinceFrame: Math.floor(
+                  (Date.now() - lastFrameTsRef.current) / 1000,
+                ),
+              });
               log(
                 `RX: +${dBytes} bytes, +${dFrames} frames (total ${report.framesDecoded || 0} frames, ${report.bytesReceived} bytes, ${report.packetsLost || 0} lost)`,
               );
@@ -343,7 +366,7 @@ export default function Viewer() {
           const msg = err instanceof Error ? err.message : String(err);
           log(`stats err: ${msg}`, 'err');
         }
-      }, 3000);
+      }, 1000);
 
       video.focus();
     };
@@ -479,7 +502,20 @@ export default function Viewer() {
   };
 
   const unblockAutoplay = () => {
-    videoRef.current?.play().then(() => setNeedsClickToPlay(false)).catch(() => { /* noop */ });
+    const video = videoRef.current;
+    if (!video) return;
+    video.muted = true; // ensure muted before retrying
+    video
+      .play()
+      .then(() => {
+        setNeedsClickToPlay(false);
+        setPlaybackError(null);
+        log('video.play() unblocked by click', 'ok');
+      })
+      .catch((err: Error) => {
+        log(`unblock still rejected: ${err.name}: ${err.message}`, 'err');
+        setPlaybackError(`${err.name}: ${err.message}`);
+      });
   };
 
   const stateLabel: Record<ConnState, string> = {
@@ -568,6 +604,7 @@ export default function Viewer() {
           <video
             ref={videoRef}
             autoPlay
+            muted
             playsInline
             tabIndex={0}
             className="max-w-full max-h-full bg-black outline-none"
@@ -591,13 +628,45 @@ export default function Viewer() {
           {needsClickToPlay && (
             <button
               onClick={unblockAutoplay}
-              className="absolute inset-0 flex items-center justify-center bg-black/70"
+              className="absolute inset-0 flex items-center justify-center bg-black/70 z-20"
             >
-              <div className="px-5 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium">
-                Click to start video
+              <div className="flex flex-col items-center gap-2">
+                <div className="px-5 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium">
+                  Click to start video
+                </div>
+                {playbackError && (
+                  <div className="text-xs text-red-300 max-w-md text-center">
+                    {playbackError}
+                  </div>
+                )}
               </div>
             </button>
           )}
+
+          {/* Connected-but-no-frames diagnostic. Fires when ICE is connected,
+              bytes are arriving, but 0 frames have been decoded for >5s —
+              classic H.264 codec mismatch symptom. Show it prominently so
+              the user doesn't have to open logs to know it's not their click. */}
+          {connState === 'streaming' &&
+            stats.bytes > 0 &&
+            stats.frames === 0 &&
+            !needsClickToPlay && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/80 p-4 z-10">
+                <div className="max-w-md bg-gray-900 border border-amber-900 rounded-lg p-5 text-center">
+                  <div className="text-amber-400 text-sm font-semibold mb-2">
+                    Stream connected but video isn't decoding
+                  </div>
+                  <div className="text-xs text-gray-400 mb-3">
+                    {stats.bytes.toLocaleString()} bytes received · 0 frames decoded · {stats.lost} packets lost
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    This usually means the remote computer is running an outdated Callmor
+                    agent. Have them re-download <code className="text-gray-300">callmor.exe</code> from{' '}
+                    <span className="text-blue-400">remote.callmor.ai/download</span>.
+                  </div>
+                </div>
+              </div>
+            )}
 
           {sessionEnded && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/85 p-4">
