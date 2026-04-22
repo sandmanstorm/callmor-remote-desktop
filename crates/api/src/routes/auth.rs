@@ -39,6 +39,7 @@ pub struct UserInfo {
     pub email: String,
     pub display_name: String,
     pub role: String,
+    pub is_superadmin: bool,
     pub tenant_id: Uuid,
     pub tenant_name: String,
     pub tenant_slug: String,
@@ -78,10 +79,11 @@ async fn issue_tokens(
     user_id: Uuid,
     tenant_id: Uuid,
     role: &str,
+    is_superadmin: bool,
 ) -> Result<(String, String), (StatusCode, String)> {
     let access_token = state
         .jwt
-        .create_access_token(user_id, tenant_id, role)
+        .create_access_token(user_id, tenant_id, role, is_superadmin)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("JWT error: {e}")))?;
 
     let refresh = generate_refresh_token();
@@ -138,7 +140,7 @@ pub async fn register(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
-    let (access_token, refresh_token) = issue_tokens(&state, user_id, tenant_id, "owner").await?;
+    let (access_token, refresh_token) = issue_tokens(&state, user_id, tenant_id, "owner", false).await?;
 
     Ok(Json(AuthResponse {
         access_token,
@@ -148,6 +150,7 @@ pub async fn register(
             email: req.email,
             display_name: req.display_name,
             role: "owner".into(),
+            is_superadmin: false,
             tenant_id,
             tenant_name: req.tenant_name,
             tenant_slug: slug,
@@ -183,7 +186,7 @@ pub async fn login(
     }
 
     let (access_token, refresh_token) =
-        issue_tokens(&state, user.id, tenant.id, &user.role).await?;
+        issue_tokens(&state, user.id, tenant.id, &user.role, user.is_superadmin).await?;
 
     Ok(Json(AuthResponse {
         access_token,
@@ -193,6 +196,7 @@ pub async fn login(
             email: user.email,
             display_name: user.display_name,
             role: user.role,
+            is_superadmin: user.is_superadmin,
             tenant_id: tenant.id,
             tenant_name: tenant.name,
             tenant_slug: tenant.slug,
@@ -229,7 +233,7 @@ pub async fn refresh(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
     let (access_token, refresh_token) =
-        issue_tokens(&state, user.id, user.tenant_id, &user.role).await?;
+        issue_tokens(&state, user.id, user.tenant_id, &user.role, user.is_superadmin).await?;
 
     Ok(Json(AuthResponse {
         access_token,
@@ -239,6 +243,7 @@ pub async fn refresh(
             email: user.email,
             display_name: user.display_name,
             role: user.role,
+            is_superadmin: user.is_superadmin,
             tenant_id: tenant.id,
             tenant_name: tenant.name,
             tenant_slug: tenant.slug,

@@ -4,6 +4,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import Team from './pages/Team';
+import Admin from './pages/Admin';
 import AcceptInvite from './pages/AcceptInvite';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -26,6 +27,7 @@ function App() {
           <Route path="/invite/:token" element={<AcceptInvite />} />
           <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/team" element={<ProtectedRoute><Team /></ProtectedRoute>} />
+          <Route path="/admin" element={<ProtectedRoute><Admin /></ProtectedRoute>} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

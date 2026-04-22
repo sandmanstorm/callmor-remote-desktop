@@ -113,8 +113,14 @@ async fn main() -> Result<()> {
         .route("/downloads/agent/windows/zip", get(routes::downloads::download_agent_windows))
         // Agent (agent-token auth, not user JWT)
         .route("/agent/heartbeat", post(routes::agent::heartbeat))
-        // Admin
+        // Admin (superadmin only)
         .route("/admin/test-email", post(routes::email_test::send_test_email))
+        .route("/admin/stats", get(routes::admin::get_stats))
+        .route("/admin/tenants", get(routes::admin::list_tenants))
+        .route("/admin/tenants/{id}", delete(routes::admin::delete_tenant))
+        .route("/admin/users", get(routes::admin::list_users))
+        .route("/admin/users/{id}/superadmin", patch(routes::admin::set_superadmin))
+        .route("/admin/machines", get(routes::admin::list_machines))
         .layer(cors)
         .with_state(state);
 

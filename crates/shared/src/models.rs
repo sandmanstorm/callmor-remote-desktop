@@ -20,6 +20,7 @@ pub struct User {
     pub display_name: String,
     pub role: String,
     pub totp_secret: Option<String>,
+    pub is_superadmin: bool,
     pub created_at: DateTime<Utc>,
 }
 

@@ -10,6 +10,8 @@ pub struct Claims {
     pub sub: Uuid,        // user_id
     pub tenant_id: Uuid,
     pub role: String,
+    #[serde(default)]
+    pub is_superadmin: bool,
     pub exp: i64,
     pub iat: i64,
 }
@@ -43,12 +45,13 @@ impl JwtKeys {
         }
     }
 
-    pub fn create_access_token(&self, user_id: Uuid, tenant_id: Uuid, role: &str) -> Result<String> {
+    pub fn create_access_token(&self, user_id: Uuid, tenant_id: Uuid, role: &str, is_superadmin: bool) -> Result<String> {
         let now = Utc::now();
         let claims = Claims {
             sub: user_id,
             tenant_id,
             role: role.to_string(),
+            is_superadmin,
             iat: now.timestamp(),
             exp: (now + Duration::minutes(15)).timestamp(),
         };

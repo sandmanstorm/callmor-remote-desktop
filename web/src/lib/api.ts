@@ -51,6 +51,7 @@ export interface UserInfo {
   email: string;
   display_name: string;
   role: string;
+  is_superadmin: boolean;
   tenant_id: string;
   tenant_name: string;
   tenant_slug: string;
@@ -171,6 +172,58 @@ export const machineAccessApi = {
     api.delete(`/machines/${machineId}/access/${userId}`),
   updateMode: (machineId: string, access_mode: 'public' | 'restricted') =>
     api.patch(`/machines/${machineId}`, { access_mode }),
+};
+
+// --- Super-admin (platform) ---
+
+export interface PlatformStats {
+  total_tenants: number;
+  total_users: number;
+  total_machines: number;
+  online_machines: number;
+  active_sessions: number;
+}
+
+export interface TenantOverview {
+  id: string;
+  name: string;
+  slug: string;
+  user_count: number;
+  machine_count: number;
+  online_machines: number;
+  created_at: string;
+}
+
+export interface GlobalUser {
+  id: string;
+  email: string;
+  display_name: string;
+  role: string;
+  is_superadmin: boolean;
+  tenant_id: string;
+  tenant_name: string;
+  created_at: string;
+}
+
+export interface GlobalMachine {
+  id: string;
+  name: string;
+  hostname: string | null;
+  os: string | null;
+  is_online: boolean;
+  last_seen: string | null;
+  tenant_id: string;
+  tenant_name: string;
+}
+
+export const adminApi = {
+  stats: () => api.get<PlatformStats>('/admin/stats'),
+  listTenants: () => api.get<TenantOverview[]>('/admin/tenants'),
+  deleteTenant: (id: string) => api.delete(`/admin/tenants/${id}`),
+  listUsers: () => api.get<GlobalUser[]>('/admin/users'),
+  setSuperadmin: (userId: string, is_superadmin: boolean) =>
+    api.patch(`/admin/users/${userId}/superadmin`, { is_superadmin }),
+  listMachines: () => api.get<GlobalMachine[]>('/admin/machines'),
 };
 
 export default api;

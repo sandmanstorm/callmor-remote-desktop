@@ -261,7 +261,7 @@ pub async fn accept_invitation(
 
     let access_token = state
         .jwt
-        .create_access_token(user_id, tenant_id, &role)
+        .create_access_token(user_id, tenant_id, &role, false)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("JWT: {e}")))?;
 
     let refresh = generate_refresh_token();
@@ -284,6 +284,7 @@ pub async fn accept_invitation(
             email,
             display_name: req.display_name,
             role,
+            is_superadmin: false,
             tenant_id,
             tenant_name: tenant.name,
             tenant_slug: tenant.slug,
