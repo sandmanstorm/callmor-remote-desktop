@@ -1,4 +1,4 @@
-import { Download as DownloadIcon, Monitor, Apple, Terminal } from 'lucide-react';
+import { Download as DownloadIcon, Monitor, Apple, Terminal, Shield } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -46,6 +46,18 @@ export default function Download() {
           needs to connect from <a href="/connect" className="text-blue-400 hover:underline">remote.callmor.ai/connect</a>.
           No account needed.
         </p>
+
+        <div className="mb-6 p-4 bg-amber-950/40 border border-amber-900 rounded flex gap-3">
+          <Shield className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+          <div className="text-sm text-amber-100">
+            <div className="font-medium mb-1">Windows may warn you the first time</div>
+            <div className="text-amber-200/80">
+              The installer isn't code-signed yet, so SmartScreen will say "Windows protected your PC."
+              Click <span className="font-semibold">More info</span> → <span className="font-semibold">Run anyway</span>.
+              Defender may also hold the file — if so, open Protection history and choose <span className="font-semibold">Allow on device</span>.
+            </div>
+          </div>
+        </div>
 
         <div className="grid gap-3">
           {options.map(({ os, icon: Icon, file, href, note, disabled }) => (

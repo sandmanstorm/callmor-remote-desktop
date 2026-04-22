@@ -36,6 +36,20 @@ Unicode true
 ; the installer .exe and can be replaced at download time by the API.
 SetCompress off
 
+; Version metadata visible in Explorer properties and scanned by SmartScreen /
+; AV engines. Real relief from SmartScreen requires code signing (EV cert), but
+; presenting as a named publisher with a clear description reduces false flags.
+VIProductVersion "${VERSION}.0"
+VIAddVersionKey "ProductName"      "Callmor Remote Desktop"
+VIAddVersionKey "CompanyName"      "Callmor"
+VIAddVersionKey "LegalCopyright"   "Copyright (C) Callmor"
+VIAddVersionKey "FileDescription"  "Callmor Remote Desktop Agent Installer"
+VIAddVersionKey "FileVersion"      "${VERSION}"
+VIAddVersionKey "ProductVersion"   "${VERSION}"
+VIAddVersionKey "InternalName"     "callmor-agent-setup"
+VIAddVersionKey "OriginalFilename" "callmor-agent-setup.exe"
+BrandingText "Callmor — https://remote.callmor.ai"
+
 ; --- UI (silent-ish: welcome + progress + finish only) ---
 !define MUI_ICON "${NSISDIR}\Contrib\Graphics\Icons\modern-install.ico"
 !define MUI_UNICON "${NSISDIR}\Contrib\Graphics\Icons\modern-uninstall.ico"
