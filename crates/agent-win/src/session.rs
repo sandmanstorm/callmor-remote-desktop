@@ -142,19 +142,26 @@ async fn setup_peer_connection(
     tokio::task::JoinHandle<()>,
     Arc<std::sync::atomic::AtomicBool>,
 )> {
-    // Media engine with H.264 codec.
-    //
-    // We register register_default_codecs() AND then manually add an H.264
-    // payload entry with profile-level-id 42e034 — Constrained Baseline
-    // Level 5.2. The default codecs only advertise levels up to 3.1, which
-    // caps decode at 1280x720@30. We capture at the monitor's native
-    // resolution (often 1920x1080 or higher) so we need the browser's
-    // decoder to accept a higher level. Level 5.2 supports 4K@60.
-    let mut media = MediaEngine::default();
-    media.register_default_codecs()?;
+    // Media engine — register EXACTLY ONE H.264 codec so the browser has
+    // no choice in SDP negotiation. Constrained Baseline Level 3.1 +
+    // packetization-mode=1 is the universal safe pick supported by every
+    // browser, and our capture loop downscales to 1280x720 to stay
+    // within Level 3.1's bounds. register_default_codecs() is skipped
+    // because it offers many variants, and if Chrome picks a mismatched
+    // one we get the exact blank-screen failure we've been chasing.
     use webrtc::rtp_transceiver::rtp_codec::{
         RTCRtpCodecCapability, RTCRtpCodecParameters, RTPCodecType,
     };
+    use webrtc::rtp_transceiver::RTCPFeedback;
+
+    let h264_feedback = vec![
+        RTCPFeedback { typ: "goog-remb".into(), parameter: "".into() },
+        RTCPFeedback { typ: "ccm".into(), parameter: "fir".into() },
+        RTCPFeedback { typ: "nack".into(), parameter: "".into() },
+        RTCPFeedback { typ: "nack".into(), parameter: "pli".into() },
+    ];
+
+    let mut media = MediaEngine::default();
     media.register_codec(
         RTCRtpCodecParameters {
             capability: RTCRtpCodecCapability {
@@ -162,11 +169,11 @@ async fn setup_peer_connection(
                 clock_rate: 90000,
                 channels: 0,
                 sdp_fmtp_line:
-                    "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e034"
+                    "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f"
                         .to_string(),
-                rtcp_feedback: vec![],
+                rtcp_feedback: h264_feedback,
             },
-            payload_type: 127,
+            payload_type: 102,
             ..Default::default()
         },
         RTPCodecType::Video,
