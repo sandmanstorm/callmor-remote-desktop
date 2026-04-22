@@ -191,11 +191,18 @@ async fn setup_peer_connection(
 
     let pc = Arc::new(api.new_peer_connection(config).await?);
 
-    // Video track (H.264)
+    // Video track — MUST match the registered codec capability exactly,
+    // otherwise webrtc-rs can't map the track to the negotiated payload
+    // type during RTP writing and the samples are silently dropped.
     let track = Arc::new(TrackLocalStaticSample::new(
         RTCRtpCodecCapability {
             mime_type: MIME_TYPE_H264.to_string(),
-            ..Default::default()
+            clock_rate: 90000,
+            channels: 0,
+            sdp_fmtp_line:
+                "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f"
+                    .to_string(),
+            rtcp_feedback: vec![],
         },
         "video".into(),
         "callmor".into(),
@@ -321,7 +328,7 @@ fn capture_loop(
     track: Arc<TrackLocalStaticSample>,
     stop_flag: Arc<std::sync::atomic::AtomicBool>,
 ) -> Result<()> {
-    use openh264::encoder::Encoder;
+    use openh264::encoder::{Encoder, EncoderConfig};
     use openh264::formats::{BgraSliceU8, YUVBuffer};
 
     let mut capturer = Capturer::new().context("Failed to init DXGI capturer")?;
@@ -329,7 +336,14 @@ fn capture_loop(
     let src_h = capturer.height;
     info!("Capturer ready: {src_w}x{src_h} — encoding at {ENC_WIDTH}x{ENC_HEIGHT}");
 
-    let mut encoder = Encoder::new().context("openh264 encoder")?;
+    // Explicit encoder config — previously we relied on defaults which made
+    // profile + level + keyframe interval implicit. Baseline profile with a
+    // 30-frame GOP (1 keyframe/second at 30fps) means the browser always has
+    // a fresh IDR to bootstrap decoding.
+    let cfg = EncoderConfig::new()
+        .max_frame_rate(openh264::encoder::FrameRate::from_hz(30.0));
+    let mut encoder = Encoder::with_api_config(openh264::OpenH264API::from_source(), cfg)
+        .context("openh264 encoder")?;
     let mut yuv = YUVBuffer::new(ENC_WIDTH as usize, ENC_HEIGHT as usize);
 
     // Scratch buffer for the downscaled BGRA pixels.
