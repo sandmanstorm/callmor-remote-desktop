@@ -54,6 +54,31 @@ services:
       - ./config/coturn/turnserver.conf:/etc/turnserver.conf:ro
     command: ["-c", "/etc/turnserver.conf", "--static-auth-secret=${TURN_SECRET}"]
 
+  # --- RustDesk self-hosted stack ---------------------------------------------
+  # hbbs: ID/rendezvous server — clients register here and discover each other.
+  # hbbr: relay server — fallback path when direct P2P fails.
+  # Run in host-network mode so all the peer traffic ports (21115-21119 TCP,
+  # 21116 UDP) are reachable without Docker's NAT getting in the way. RustDesk
+  # clients will be pointed at `rd.callmor.ai` with a RELAY/ID server setting.
+  rustdesk-hbbs:
+    image: rustdesk/rustdesk-server:latest
+    restart: unless-stopped
+    network_mode: host
+    command: hbbs -r rd.callmor.ai:21117
+    volumes:
+      - rustdesk-data:/root
+    depends_on:
+      - rustdesk-hbbr
+
+  rustdesk-hbbr:
+    image: rustdesk/rustdesk-server:latest
+    restart: unless-stopped
+    network_mode: host
+    command: hbbr
+    volumes:
+      - rustdesk-data:/root
+
 volumes:
   pgdata:
   minio-data:
+  rustdesk-data:

@@ -302,6 +302,13 @@ async fn setup_peer_connection(
     Ok((pc, handle, stop_flag))
 }
 
+/// Target encode resolution. Capped so the bitstream always fits within the
+/// H.264 profile level every browser decoder accepts out of the box
+/// (Constrained Baseline Level 3.1, max 1280x720). Native-resolution capture
+/// was getting dropped by Chrome's decoder even when bytes arrived.
+const ENC_WIDTH: u32 = 1280;
+const ENC_HEIGHT: u32 = 720;
+
 /// Capture frames, encode to H.264, send as samples.
 fn capture_loop(
     track: Arc<TrackLocalStaticSample>,
@@ -311,17 +318,19 @@ fn capture_loop(
     use openh264::formats::{BgraSliceU8, YUVBuffer};
 
     let mut capturer = Capturer::new().context("Failed to init DXGI capturer")?;
-    let width = capturer.width;
-    let height = capturer.height;
-    info!("Capturer ready: {width}x{height}");
+    let src_w = capturer.width;
+    let src_h = capturer.height;
+    info!("Capturer ready: {src_w}x{src_h} — encoding at {ENC_WIDTH}x{ENC_HEIGHT}");
 
     let mut encoder = Encoder::new().context("openh264 encoder")?;
-    let mut yuv = YUVBuffer::new(width as usize, height as usize);
+    let mut yuv = YUVBuffer::new(ENC_WIDTH as usize, ENC_HEIGHT as usize);
+
+    // Scratch buffer for the downscaled BGRA pixels.
+    let mut scaled: Vec<u8> = vec![0u8; (ENC_WIDTH * ENC_HEIGHT * 4) as usize];
 
     let target_fps = 30u64;
     let frame_duration = std::time::Duration::from_millis(1000 / target_fps);
 
-    // Periodic diagnostic so we can see frames flowing.
     let mut frames_sent: u64 = 0;
     let mut bytes_sent: u64 = 0;
     let mut empty_frames: u64 = 0;
@@ -336,8 +345,20 @@ fn capture_loop(
 
         match capturer.grab(100) {
             Ok(Some(frame)) => {
-                // Convert BGRA -> YUV via openh264's RGBSource impl
-                let bgra = BgraSliceU8::new(&frame.data[..], (width as usize, height as usize));
+                // Downscale source → 1280x720 with a fast nearest-neighbor
+                // resampler. Quality is fine for remote-desktop; the win is
+                // that encoded frames fit even Chrome's most restrictive
+                // default H.264 level.
+                resize_bgra_nearest(
+                    &frame.data[..],
+                    src_w,
+                    src_h,
+                    &mut scaled[..],
+                    ENC_WIDTH,
+                    ENC_HEIGHT,
+                );
+
+                let bgra = BgraSliceU8::new(&scaled[..], (ENC_WIDTH as usize, ENC_HEIGHT as usize));
                 yuv.read_rgb(bgra);
 
                 let bitstream = encoder.encode(&yuv).context("encode")?;
@@ -386,3 +407,37 @@ fn capture_loop(
 /// Suppressed non-Windows unused warning.
 #[allow(dead_code)]
 fn _frame_used(_f: &Frame) {}
+
+/// Nearest-neighbor BGRA resize. Fast enough for 30fps 1080p → 720p on any
+/// modern CPU (~5 ms) and has zero deps. Quality is acceptable for
+/// remote-desktop; if we later need smoother scaling we can swap in bilinear.
+fn resize_bgra_nearest(src: &[u8], sw: u32, sh: u32, dst: &mut [u8], dw: u32, dh: u32) {
+    let sw = sw as usize;
+    let sh = sh as usize;
+    let dw = dw as usize;
+    let dh = dh as usize;
+    debug_assert_eq!(src.len(), sw * sh * 4);
+    debug_assert_eq!(dst.len(), dw * dh * 4);
+
+    // Precompute source-column indices once per frame (avoids a mul per pixel).
+    // Fixed-point Q16 to keep divisions out of the inner loop.
+    let x_step = ((sw as u64) << 16) / (dw as u64);
+    let y_step = ((sh as u64) << 16) / (dh as u64);
+
+    let mut x_indices = Vec::with_capacity(dw);
+    for x in 0..dw {
+        let sx = ((x as u64) * x_step) >> 16;
+        x_indices.push(sx.min(sw as u64 - 1) as usize);
+    }
+
+    for y in 0..dh {
+        let sy = (((y as u64) * y_step) >> 16).min(sh as u64 - 1) as usize;
+        let src_row = &src[sy * sw * 4..(sy + 1) * sw * 4];
+        let dst_row = &mut dst[y * dw * 4..(y + 1) * dw * 4];
+        for (x, sx) in x_indices.iter().enumerate() {
+            let sp = sx * 4;
+            let dp = x * 4;
+            dst_row[dp..dp + 4].copy_from_slice(&src_row[sp..sp + 4]);
+        }
+    }
+}
