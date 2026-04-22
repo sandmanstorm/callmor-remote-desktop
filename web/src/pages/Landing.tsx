@@ -7,6 +7,8 @@ import {
   Shield,
   Zap,
   LayoutDashboard,
+  Server,
+  Check,
 } from 'lucide-react';
 import { useAuth } from '../lib/auth';
 
@@ -79,6 +81,48 @@ export default function Landing() {
             title="Works through any firewall"
             body="If a direct peer-to-peer path fails, traffic relays through our TURN servers automatically. No router config, no VPN."
           />
+        </div>
+      </section>
+
+      {/* Two ways to connect */}
+      <section className="border-t border-gray-800 bg-gray-950">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-20">
+          <div className="text-center mb-10">
+            <h2 className="text-3xl md:text-4xl font-bold text-white">Two ways to connect</h2>
+            <p className="mt-3 text-gray-400 text-lg">
+              Pick the mode that fits the job. You can use both.
+            </p>
+          </div>
+          <div className="grid md:grid-cols-2 gap-5">
+            <ModeCard
+              accent="blue"
+              icon={<Zap className="w-5 h-5 text-blue-400" />}
+              title="Quick Connect"
+              tagline="Works immediately. No setup."
+              body="One click on the host, a code and PIN appear, share them, the other side connects in any browser. Perfect for ad-hoc support."
+              bullets={[
+                'One-click portable agent',
+                'Browser-based viewer',
+                'No router config',
+              ]}
+              ctaLabel="Connect with a code"
+              ctaTo="/connect"
+            />
+            <ModeCard
+              accent="purple"
+              icon={<Server className="w-5 h-5 text-purple-400" />}
+              title="RustDesk Mode"
+              tagline="Full-featured. Persistent machines."
+              body="Install the Callmor client once per computer and reach it forever by its 9-digit ID. Full streaming, file transfer, 2FA. Requires port forwarding on the host network."
+              bullets={[
+                'Permanent 9-digit ID per machine',
+                'File transfer, 2FA, recording',
+                'Self-hosted on Callmor infra',
+              ]}
+              ctaLabel="See setup guide"
+              ctaTo="/rustdesk-setup"
+            />
+          </div>
         </div>
       </section>
 
@@ -176,6 +220,63 @@ function Feature({ icon, title, body }: { icon: React.ReactNode; title: string; 
       </div>
       <h3 className="text-white font-semibold mb-2">{title}</h3>
       <p className="text-sm text-gray-400 leading-relaxed">{body}</p>
+    </div>
+  );
+}
+
+function ModeCard({
+  accent,
+  icon,
+  title,
+  tagline,
+  body,
+  bullets,
+  ctaLabel,
+  ctaTo,
+}: {
+  accent: 'blue' | 'purple';
+  icon: React.ReactNode;
+  title: string;
+  tagline: string;
+  body: string;
+  bullets: string[];
+  ctaLabel: string;
+  ctaTo: string;
+}) {
+  const iconWrap =
+    accent === 'blue'
+      ? 'bg-blue-500/10 border border-blue-500/20'
+      : 'bg-purple-500/10 border border-purple-500/20';
+  const cta =
+    accent === 'blue'
+      ? 'bg-blue-600 hover:bg-blue-700'
+      : 'bg-purple-600 hover:bg-purple-700';
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 flex flex-col">
+      <div className="flex items-center gap-3 mb-2">
+        <div className={`w-10 h-10 rounded-md flex items-center justify-center ${iconWrap}`}>
+          {icon}
+        </div>
+        <div>
+          <h3 className="text-xl font-semibold text-white">{title}</h3>
+          <div className="text-xs text-gray-500">{tagline}</div>
+        </div>
+      </div>
+      <p className="text-sm text-gray-400 mt-3">{body}</p>
+      <ul className="mt-4 space-y-2 text-sm text-gray-300 flex-1">
+        {bullets.map((b) => (
+          <li key={b} className="flex items-start gap-2">
+            <Check className="w-4 h-4 text-green-400 flex-shrink-0 mt-0.5" />
+            <span>{b}</span>
+          </li>
+        ))}
+      </ul>
+      <Link
+        to={ctaTo}
+        className={`mt-6 inline-flex items-center justify-center gap-2 px-4 py-2.5 ${cta} text-white rounded-md text-sm font-medium`}
+      >
+        {ctaLabel} <ArrowRight className="w-4 h-4" />
+      </Link>
     </div>
   );
 }

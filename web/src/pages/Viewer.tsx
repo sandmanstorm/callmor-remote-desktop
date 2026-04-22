@@ -20,9 +20,8 @@ interface IceServer {
 /**
  * Full-screen remote desktop viewer. Reads connection params from the
  * route + query string, fetches TURN credentials, opens a WebSocket to
- * the relay, and negotiates WebRTC with the agent. Pure port of the
- * behavior in public/viewer-test.html — no control inputs, everything
- * comes from the URL.
+ * the relay, and negotiates WebRTC with the agent. All connection
+ * parameters come from the URL — no control inputs rendered here.
  */
 export default function Viewer() {
   const { machineId: machineIdParam } = useParams<{ machineId: string }>();

@@ -10,6 +10,7 @@ import Recordings from './pages/Recordings';
 import AcceptInvite from './pages/AcceptInvite';
 import Connect from './pages/Connect';
 import Download from './pages/Download';
+import RustdeskSetup from './pages/RustdeskSetup';
 import Landing from './pages/Landing';
 import About from './pages/About';
 import Security from './pages/Security';
@@ -37,6 +38,7 @@ function App() {
           <Route path="/" element={<PublicLayout><Landing /></PublicLayout>} />
           <Route path="/connect" element={<PublicLayout><Connect /></PublicLayout>} />
           <Route path="/download" element={<PublicLayout><Download /></PublicLayout>} />
+          <Route path="/rustdesk-setup" element={<PublicLayout><RustdeskSetup /></PublicLayout>} />
           <Route path="/about" element={<PublicLayout><About /></PublicLayout>} />
           <Route path="/security" element={<PublicLayout><Security /></PublicLayout>} />
           <Route path="/terms" element={<PublicLayout><Terms /></PublicLayout>} />

@@ -29,3 +29,5 @@ minio-data/
 # Logs
 *.log
 .env.agent
+target/rustdesk-mirror/
+target/rustdesk-branded/

@@ -143,6 +143,13 @@ async fn main() -> Result<()> {
         .route("/downloads/agent/public/windows", get(routes::downloads::download_public_windows))
         .route("/downloads/agent/public/macos", get(routes::downloads::download_public_macos))
         .route("/downloads/agent/public/linux", get(routes::downloads::download_public_linux))
+        // RustDesk Mode — self-hosted rendezvous client (branded + mirrored)
+        .route("/downloads/rustdesk/windows", get(routes::downloads::download_rustdesk_windows))
+        .route("/downloads/rustdesk/windows/branded", get(routes::downloads::download_rustdesk_windows))
+        .route("/downloads/rustdesk/macos", get(routes::downloads::download_rustdesk_macos))
+        .route("/downloads/rustdesk/macos/official", get(routes::downloads::download_rustdesk_macos))
+        .route("/downloads/rustdesk/linux", get(routes::downloads::download_rustdesk_linux))
+        .route("/downloads/rustdesk/linux/official", get(routes::downloads::download_rustdesk_linux))
         // Audit log
         .route("/audit", get(routes::audit_log::list_tenant_audit))
         .route("/admin/audit", get(routes::audit_log::list_platform_audit))

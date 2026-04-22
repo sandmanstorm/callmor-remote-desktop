@@ -172,6 +172,41 @@ pub async fn download_public_linux() -> Result<Response<Body>, (StatusCode, Stri
     serve_public("target/deb-public", "deb", "application/vnd.debian.binary-package").await
 }
 
+// --- RustDesk Mode: branded + official mirrored binaries ------------------
+//
+// The /downloads/rustdesk/{os} endpoints serve the Callmor-branded installer
+// (Windows: NSIS wrapper with pre-configured Callmor rendezvous server) or
+// the mirrored upstream RustDesk binary for platforms where we haven't built
+// a branded installer yet. Mirror lives under target/rustdesk-{mirror,branded}/
+// so users download everything from callmor.ai — no external redirects.
+
+pub async fn download_rustdesk_windows() -> Result<Response<Body>, (StatusCode, String)> {
+    serve_public(
+        "target/rustdesk-branded",
+        "exe",
+        "application/vnd.microsoft.portable-executable",
+    )
+    .await
+}
+
+pub async fn download_rustdesk_macos() -> Result<Response<Body>, (StatusCode, String)> {
+    serve_public(
+        "target/rustdesk-mirror/macos",
+        "dmg",
+        "application/x-apple-diskimage",
+    )
+    .await
+}
+
+pub async fn download_rustdesk_linux() -> Result<Response<Body>, (StatusCode, String)> {
+    serve_public(
+        "target/rustdesk-mirror/linux",
+        "deb",
+        "application/vnd.debian.binary-package",
+    )
+    .await
+}
+
 #[derive(Clone, Copy)]
 enum Encoding {
     Ascii,

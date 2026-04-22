@@ -23,6 +23,7 @@ export default function NavBar() {
     { to: '/', label: 'Home' },
     { to: '/connect', label: 'Connect' },
     { to: '/download', label: 'Download' },
+    { to: '/rustdesk-setup', label: 'RustDesk' },
   ];
 
   return (
