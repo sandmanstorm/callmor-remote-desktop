@@ -432,8 +432,33 @@ fn capture_loop(
             }
             Ok(None) => { /* no new frame */ }
             Err(e) => {
-                warn!("Capture error: {e}");
-                std::thread::sleep(std::time::Duration::from_millis(100));
+                let msg = format!("{e:#}");
+                warn!("Capture error: {msg}");
+                // DXGI state corruption recovery:
+                //   - "The keyed mutex was abandoned" (0x887A0026)
+                //   - "The application made a call that is invalid" (0x887A0001)
+                //   - "DuplicateOutput: The parameter is incorrect" (0x80070057)
+                // all mean the capturer handle is no longer valid. Drop it
+                // and recreate — cheaper than requiring the user to restart.
+                if msg.contains("keyed mutex was abandoned")
+                    || msg.contains("0x887A0001")
+                    || msg.contains("DuplicateOutput")
+                {
+                    warn!("DXGI state corrupted, reinitializing capturer...");
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    match Capturer::new() {
+                        Ok(c) => {
+                            capturer = c;
+                            info!("DXGI capturer reinitialized ({}x{})", capturer.width, capturer.height);
+                        }
+                        Err(re) => {
+                            warn!("Capturer reinit failed: {re:#}, retrying in 1s");
+                            std::thread::sleep(std::time::Duration::from_millis(1000));
+                        }
+                    }
+                } else {
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
             }
         }
 
