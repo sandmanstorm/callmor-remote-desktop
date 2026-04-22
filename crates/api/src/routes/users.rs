@@ -69,6 +69,15 @@ pub async fn update_user(
         if result.rows_affected() == 0 {
             return Err((StatusCode::NOT_FOUND, "User not found".into()));
         }
+
+        crate::audit::log(
+            &state.db,
+            &crate::audit::ctx_from_claims(&claims),
+            "user.role_changed",
+            Some("user"),
+            Some(user_id),
+            serde_json::json!({"new_role": role}),
+        ).await;
     }
 
     Ok(StatusCode::NO_CONTENT)
@@ -87,6 +96,10 @@ pub async fn delete_user(
         return Err((StatusCode::CONFLICT, "Cannot remove yourself".into()));
     }
 
+    let email: Option<String> = sqlx::query_scalar("SELECT email FROM users WHERE id = $1 AND tenant_id = $2")
+        .bind(user_id).bind(claims.tenant_id)
+        .fetch_optional(&state.db).await.ok().flatten();
+
     let result = sqlx::query("DELETE FROM users WHERE id = $1 AND tenant_id = $2 AND role != 'owner'")
         .bind(user_id)
         .bind(claims.tenant_id)
@@ -97,6 +110,14 @@ pub async fn delete_user(
     if result.rows_affected() == 0 {
         Err((StatusCode::NOT_FOUND, "User not found or cannot remove owner".into()))
     } else {
+        crate::audit::log(
+            &state.db,
+            &crate::audit::ctx_from_claims(&claims),
+            "user.removed",
+            Some("user"),
+            Some(user_id),
+            serde_json::json!({"email": email}),
+        ).await;
         Ok(StatusCode::NO_CONTENT)
     }
 }

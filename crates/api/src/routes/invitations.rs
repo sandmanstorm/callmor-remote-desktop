@@ -89,6 +89,15 @@ pub async fn create_invitation(
     let invite_link = format!("{}/invite/{}", state.public_url, token);
     let mut email_sent = false;
 
+    crate::audit::log(
+        &state.db,
+        &crate::audit::ctx_from_claims(&claims),
+        "user.invited",
+        Some("invitation"),
+        Some(id),
+        serde_json::json!({"email": req.email, "role": req.role}),
+    ).await;
+
     if let Some(smtp) = crate::email::EmailConfig::load(&state.db).await {
         let (subject, html, text) = crate::email::invitation_email(
             &req.email,

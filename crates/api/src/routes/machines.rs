@@ -125,6 +125,15 @@ pub async fn create_machine(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
+    crate::audit::log(
+        &state.db,
+        &crate::audit::ctx_from_claims(&claims),
+        "machine.created",
+        Some("machine"),
+        Some(id),
+        serde_json::json!({"name": req.name}),
+    ).await;
+
     Ok((
         StatusCode::CREATED,
         Json(CreateMachineResponse {
@@ -203,6 +212,11 @@ pub async fn delete_machine(
 ) -> Result<StatusCode, (StatusCode, String)> {
     require_admin_or_owner(&claims.role)?;
 
+    // Grab name for audit before deleting
+    let name: Option<String> = sqlx::query_scalar("SELECT name FROM machines WHERE id = $1 AND tenant_id = $2")
+        .bind(machine_id).bind(claims.tenant_id)
+        .fetch_optional(&state.db).await.ok().flatten();
+
     let result = sqlx::query("DELETE FROM machines WHERE id = $1 AND tenant_id = $2")
         .bind(machine_id)
         .bind(claims.tenant_id)
@@ -213,6 +227,14 @@ pub async fn delete_machine(
     if result.rows_affected() == 0 {
         Err((StatusCode::NOT_FOUND, "Machine not found".into()))
     } else {
+        crate::audit::log(
+            &state.db,
+            &crate::audit::ctx_from_claims(&claims),
+            "machine.deleted",
+            Some("machine"),
+            Some(machine_id),
+            serde_json::json!({"name": name}),
+        ).await;
         Ok(StatusCode::NO_CONTENT)
     }
 }

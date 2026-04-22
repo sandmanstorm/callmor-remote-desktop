@@ -71,6 +71,7 @@ pub async fn create_session(
     }
 
     // Create session row
+    let ip = addr.ip().to_string();
     let session: Session = sqlx::query_as(
         "INSERT INTO sessions (tenant_id, machine_id, user_id, permission, ip_address) VALUES ($1, $2, $3, $4, $5) RETURNING *",
     )
@@ -78,10 +79,28 @@ pub async fn create_session(
     .bind(req.machine_id)
     .bind(claims.sub)
     .bind(&req.permission)
-    .bind(addr.ip().to_string())
+    .bind(&ip)
     .fetch_one(&state.db)
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+
+    crate::audit::log(
+        &state.db,
+        &crate::audit::AuditContext {
+            tenant_id: Some(claims.tenant_id),
+            actor_id: Some(claims.sub),
+            actor_email: None,
+            ip_address: Some(ip),
+        },
+        "session.started",
+        Some("machine"),
+        Some(req.machine_id),
+        serde_json::json!({
+            "machine_name": machine.name,
+            "permission": req.permission,
+            "session_id": session.id,
+        }),
+    ).await;
 
     // Issue session token (2min lifetime)
     let session_token = state

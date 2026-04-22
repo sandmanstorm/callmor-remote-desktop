@@ -1,5 +1,6 @@
 pub mod admin;
 pub mod agent;
+pub mod audit_log;
 pub mod auth;
 pub mod downloads;
 pub mod email_test;

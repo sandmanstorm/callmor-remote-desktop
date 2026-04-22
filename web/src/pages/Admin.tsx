@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
-import { adminApi, settingsApi } from '../lib/api';
+import { adminApi, settingsApi, auditApi } from '../lib/api';
 import type { PlatformStats, TenantOverview, GlobalUser, GlobalMachine, SmtpSettings } from '../lib/api';
-import { Monitor, LogOut, ArrowLeft, Building2, Users, HardDrive, Shield, Trash2, Crown, Wifi, WifiOff, Settings, Mail, Send } from 'lucide-react';
+import AuditLog from '../components/AuditLog';
+import { Monitor, LogOut, ArrowLeft, Building2, Users, HardDrive, Shield, Trash2, Crown, Wifi, WifiOff, Settings, Mail, Send, Activity } from 'lucide-react';
 
-type Tab = 'stats' | 'tenants' | 'users' | 'machines' | 'settings';
+type Tab = 'stats' | 'tenants' | 'users' | 'machines' | 'audit' | 'settings';
 
 export default function Admin() {
   const { user, logout } = useAuth();
@@ -90,6 +91,7 @@ export default function Admin() {
             { id: 'tenants', icon: Building2, label: 'Tenants' },
             { id: 'users', icon: Users, label: 'Users' },
             { id: 'machines', icon: HardDrive, label: 'Machines' },
+            { id: 'audit', icon: Activity, label: 'Audit' },
             { id: 'settings', icon: Settings, label: 'Settings' },
           ].map(({ id, icon: Icon, label }) => (
             <button
@@ -184,6 +186,8 @@ export default function Admin() {
             {machines.length === 0 && <p className="text-gray-500">No machines.</p>}
           </div>
         )}
+
+        {tab === 'audit' && <AuditLog fetchEvents={auditApi.listPlatform} showTenant />}
 
         {tab === 'settings' && <SmtpSettingsForm />}
       </main>

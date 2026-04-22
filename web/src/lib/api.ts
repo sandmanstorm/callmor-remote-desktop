@@ -257,4 +257,26 @@ export const settingsApi = {
     api.post<{ sent: boolean; message: string }>('/admin/test-email', { to }),
 };
 
+// --- Audit log ---
+export interface AuditEvent {
+  id: string;
+  tenant_id: string | null;
+  actor_id: string | null;
+  actor_email: string | null;
+  actor_display: string | null;
+  event_type: string;
+  entity_type: string | null;
+  entity_id: string | null;
+  metadata: Record<string, any>;
+  ip_address: string | null;
+  created_at: string;
+}
+
+export const auditApi = {
+  listTenant: (params?: { event_type?: string; limit?: number }) =>
+    api.get<AuditEvent[]>('/audit', { params }),
+  listPlatform: (params?: { event_type?: string; limit?: number }) =>
+    api.get<AuditEvent[]>('/admin/audit', { params }),
+};
+
 export default api;

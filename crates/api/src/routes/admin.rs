@@ -94,6 +94,15 @@ pub async fn delete_tenant(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Commit: {e}")))?;
 
+    crate::audit::log(
+        &state.db,
+        &crate::audit::AuditContext { actor_id: Some(claims.sub), ..Default::default() },
+        "admin.tenant_deleted",
+        Some("tenant"),
+        Some(tenant_id),
+        serde_json::json!({}),
+    ).await;
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -159,6 +168,14 @@ pub async fn set_superadmin(
     if result.rows_affected() == 0 {
         Err((StatusCode::NOT_FOUND, "User not found".into()))
     } else {
+        crate::audit::log(
+            &state.db,
+            &crate::audit::AuditContext { actor_id: Some(claims.sub), ..Default::default() },
+            if req.is_superadmin { "admin.superadmin_granted" } else { "admin.superadmin_revoked" },
+            Some("user"),
+            Some(user_id),
+            serde_json::json!({}),
+        ).await;
         Ok(StatusCode::NO_CONTENT)
     }
 }

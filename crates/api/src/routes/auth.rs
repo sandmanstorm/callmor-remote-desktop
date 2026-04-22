@@ -142,6 +142,20 @@ pub async fn register(
 
     let (access_token, refresh_token) = issue_tokens(&state, user_id, tenant_id, "owner", false).await?;
 
+    crate::audit::log(
+        &state.db,
+        &crate::audit::AuditContext {
+            tenant_id: Some(tenant_id),
+            actor_id: Some(user_id),
+            actor_email: Some(req.email.clone()),
+            ..Default::default()
+        },
+        "tenant.created",
+        Some("tenant"),
+        Some(tenant_id),
+        serde_json::json!({"tenant_name": req.tenant_name, "tenant_slug": slug}),
+    ).await;
+
     Ok(Json(AuthResponse {
         access_token,
         refresh_token,
@@ -160,8 +174,11 @@ pub async fn register(
 
 pub async fn login(
     State(state): State<AppState>,
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
     Json(req): Json<LoginRequest>,
 ) -> Result<Json<AuthResponse>, (StatusCode, String)> {
+    let ip = addr.ip().to_string();
+
     // Find tenant
     let tenant: Option<callmor_shared::Tenant> =
         sqlx::query_as("SELECT * FROM tenants WHERE slug = $1")
@@ -169,7 +186,20 @@ pub async fn login(
             .fetch_optional(&state.db)
             .await
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
-    let tenant = tenant.ok_or((StatusCode::UNAUTHORIZED, "Invalid credentials".into()))?;
+    let tenant = match tenant {
+        Some(t) => t,
+        None => {
+            crate::audit::log(
+                &state.db,
+                &crate::audit::AuditContext { ip_address: Some(ip.clone()), ..Default::default() },
+                "auth.login_failed",
+                Some("email"),
+                None,
+                serde_json::json!({"email": req.email, "reason": "tenant_not_found"}),
+            ).await;
+            return Err((StatusCode::UNAUTHORIZED, "Invalid credentials".into()));
+        }
+    };
 
     // Find user
     let user: Option<callmor_shared::User> =
@@ -179,14 +209,54 @@ pub async fn login(
             .fetch_optional(&state.db)
             .await
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
-    let user = user.ok_or((StatusCode::UNAUTHORIZED, "Invalid credentials".into()))?;
+    let user = match user {
+        Some(u) => u,
+        None => {
+            crate::audit::log(
+                &state.db,
+                &crate::audit::AuditContext { tenant_id: Some(tenant.id), ip_address: Some(ip.clone()), ..Default::default() },
+                "auth.login_failed",
+                Some("email"),
+                None,
+                serde_json::json!({"email": req.email, "reason": "user_not_found"}),
+            ).await;
+            return Err((StatusCode::UNAUTHORIZED, "Invalid credentials".into()));
+        }
+    };
 
     if !verify_password(&req.password, &user.password_hash) {
+        crate::audit::log(
+            &state.db,
+            &crate::audit::AuditContext {
+                tenant_id: Some(tenant.id),
+                actor_id: Some(user.id),
+                actor_email: Some(user.email.clone()),
+                ip_address: Some(ip),
+            },
+            "auth.login_failed",
+            Some("user"),
+            Some(user.id),
+            serde_json::json!({"reason": "wrong_password"}),
+        ).await;
         return Err((StatusCode::UNAUTHORIZED, "Invalid credentials".into()));
     }
 
     let (access_token, refresh_token) =
         issue_tokens(&state, user.id, tenant.id, &user.role, user.is_superadmin).await?;
+
+    crate::audit::log(
+        &state.db,
+        &crate::audit::AuditContext {
+            tenant_id: Some(tenant.id),
+            actor_id: Some(user.id),
+            actor_email: Some(user.email.clone()),
+            ip_address: Some(ip),
+        },
+        "auth.login",
+        Some("user"),
+        Some(user.id),
+        serde_json::json!({}),
+    ).await;
 
     Ok(Json(AuthResponse {
         access_token,

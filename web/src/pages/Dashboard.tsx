@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { machinesApi, sessionsApi, machineAccessApi, usersApi } from '../lib/api';
 import type { Machine, CreateMachineResponse, AccessUser, User } from '../lib/api';
-import { Monitor, Plus, Trash2, LogOut, Copy, Wifi, WifiOff, Download, Users, Eye, Settings, Lock, Globe, X, Shield } from 'lucide-react';
+import { Monitor, Plus, Trash2, LogOut, Copy, Wifi, WifiOff, Download, Users, Eye, Settings, Lock, Globe, X, Shield, Activity } from 'lucide-react';
 
 export default function Dashboard() {
   const { user, logout } = useAuth();
@@ -121,6 +121,11 @@ export default function Dashboard() {
           {user?.is_superadmin && (
             <button onClick={() => navigate('/admin')} className="text-red-400 hover:text-red-300 flex items-center gap-1 text-sm" title="Platform admin">
               <Shield className="w-4 h-4" /> Admin
+            </button>
+          )}
+          {isAdmin && (
+            <button onClick={() => navigate('/activity')} className="text-gray-400 hover:text-white flex items-center gap-1 text-sm" title="Activity log">
+              <Activity className="w-4 h-4" /> Activity
             </button>
           )}
           <button onClick={() => navigate('/team')} className="text-gray-400 hover:text-white flex items-center gap-1 text-sm" title="Team">

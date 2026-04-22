@@ -1,3 +1,4 @@
+mod audit;
 mod auth_extractor;
 mod email;
 mod jwt;
@@ -110,6 +111,9 @@ async fn main() -> Result<()> {
         // Downloads
         .route("/downloads/agent/linux/deb", get(routes::downloads::download_agent_deb))
         .route("/downloads/agent/windows/zip", get(routes::downloads::download_agent_windows))
+        // Audit log
+        .route("/audit", get(routes::audit_log::list_tenant_audit))
+        .route("/admin/audit", get(routes::audit_log::list_platform_audit))
         // Agent (agent-token auth, not user JWT)
         .route("/agent/heartbeat", post(routes::agent::heartbeat))
         // Admin (superadmin only)
