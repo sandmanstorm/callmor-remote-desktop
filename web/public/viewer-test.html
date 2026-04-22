@@ -39,12 +39,18 @@
   </div>
 
   <script>
+    // Session permission (from URL param)
+    window.sessionPermission = 'full_control';
+
     // Auto-populate from URL params and auto-connect
     (function() {
       const params = new URLSearchParams(window.location.search);
       if (params.has('relay')) document.getElementById('url').value = params.get('relay');
       if (params.has('machine')) document.getElementById('machineId').value = params.get('machine');
       if (params.has('token')) document.getElementById('token').value = params.get('token');
+      if (params.has('permission')) {
+        window.sessionPermission = params.get('permission');
+      }
       if (params.has('token')) {
         // Auto-connect when session token is provided
         setTimeout(() => document.getElementById('connectBtn').click(), 100);
@@ -211,7 +217,20 @@
           inputChannel = channel;
           inputChannel.onopen = () => {
             log('Input data channel open', 'ok');
-            setupInputCapture();
+            // Send permission to agent
+            const perm = window.sessionPermission || 'full_control';
+            inputChannel.send(JSON.stringify({ type: 'permission', value: perm }));
+            log(`Permission: ${perm}`, 'ok');
+
+            if (perm === 'view_only') {
+              // Show view-only indicator
+              const badge = document.createElement('div');
+              badge.textContent = '👁 VIEW ONLY';
+              badge.style.cssText = 'position:fixed;top:50px;right:10px;background:#fbbf24;color:#78350f;padding:4px 10px;border-radius:4px;font-size:12px;font-weight:bold;z-index:100;';
+              document.body.appendChild(badge);
+            } else {
+              setupInputCapture();
+            }
           };
           inputChannel.onmessage = (ev) => {
             try {

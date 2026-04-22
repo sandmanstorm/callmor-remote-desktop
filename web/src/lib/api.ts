@@ -64,6 +64,7 @@ export interface Machine {
   os: string | null;
   last_seen: string | null;
   is_online: boolean;
+  access_mode: string;
   created_at: string;
 }
 
@@ -101,6 +102,74 @@ export interface SessionResponse {
 export const sessionsApi = {
   create: (machineId: string, permission = 'full_control') =>
     api.post<SessionResponse>('/sessions', { machine_id: machineId, permission }),
+};
+
+// --- Users ---
+export interface User {
+  id: string;
+  email: string;
+  display_name: string;
+  role: string;
+  created_at: string;
+}
+
+export const usersApi = {
+  list: () => api.get<User[]>('/users'),
+  update: (id: string, role: string) => api.patch(`/users/${id}`, { role }),
+  delete: (id: string) => api.delete(`/users/${id}`),
+};
+
+// --- Invitations ---
+export interface Invitation {
+  id: string;
+  email: string;
+  role: string;
+  expires_at: string;
+  created_at: string;
+}
+
+export interface CreateInvitationResponse {
+  id: string;
+  email: string;
+  role: string;
+  token: string;
+  expires_at: string;
+}
+
+export interface InvitationDetails {
+  email: string;
+  role: string;
+  tenant_name: string;
+  tenant_slug: string;
+  invited_by_name: string;
+  expires_at: string;
+}
+
+export const invitationsApi = {
+  list: () => api.get<Invitation[]>('/invitations'),
+  create: (email: string, role = 'member') =>
+    api.post<CreateInvitationResponse>('/invitations', { email, role }),
+  delete: (id: string) => api.delete(`/invitations/${id}`),
+  getByToken: (token: string) => api.get<InvitationDetails>(`/invitations/token/${token}`),
+  accept: (token: string, password: string, display_name: string) =>
+    api.post<AuthResponse>(`/invitations/token/${token}/accept`, { password, display_name }),
+};
+
+// --- Machine access ---
+export interface AccessUser {
+  user_id: string;
+  email: string;
+  display_name: string;
+}
+
+export const machineAccessApi = {
+  list: (machineId: string) => api.get<AccessUser[]>(`/machines/${machineId}/access`),
+  grant: (machineId: string, userId: string) =>
+    api.post(`/machines/${machineId}/access`, { user_id: userId }),
+  revoke: (machineId: string, userId: string) =>
+    api.delete(`/machines/${machineId}/access/${userId}`),
+  updateMode: (machineId: string, access_mode: 'public' | 'restricted') =>
+    api.patch(`/machines/${machineId}`, { access_mode }),
 };
 
 export default api;

@@ -5,7 +5,7 @@ mod state;
 
 use anyhow::Result;
 use axum::{
-    routing::{delete, get, post},
+    routing::{delete, get, patch, post},
     Json, Router,
 };
 use serde_json::json;
@@ -76,7 +76,22 @@ async fn main() -> Result<()> {
         .route("/machines", get(routes::machines::list_machines))
         .route("/machines", post(routes::machines::create_machine))
         .route("/machines/{id}", get(routes::machines::get_machine))
+        .route("/machines/{id}", patch(routes::machines::update_machine))
         .route("/machines/{id}", delete(routes::machines::delete_machine))
+        .route("/machines/{id}/access", get(routes::machines::list_machine_access))
+        .route("/machines/{id}/access", post(routes::machines::grant_machine_access))
+        .route("/machines/{id}/access/{user_id}", delete(routes::machines::revoke_machine_access))
+        // Users
+        .route("/users", get(routes::users::list_users))
+        .route("/users/{id}", patch(routes::users::update_user))
+        .route("/users/{id}", delete(routes::users::delete_user))
+        // Invitations (authenticated)
+        .route("/invitations", get(routes::invitations::list_invitations))
+        .route("/invitations", post(routes::invitations::create_invitation))
+        .route("/invitations/{id}", delete(routes::invitations::delete_invitation))
+        // Invitation accept (public)
+        .route("/invitations/token/{token}", get(routes::invitations::get_invitation))
+        .route("/invitations/token/{token}/accept", post(routes::invitations::accept_invitation))
         // Sessions
         .route("/sessions", post(routes::sessions::create_session))
         .route("/sessions", get(routes::sessions::list_sessions))

@@ -43,6 +43,21 @@ pub struct Machine {
     pub agent_token: String,
     pub last_seen: Option<DateTime<Utc>>,
     pub is_online: bool,
+    pub access_mode: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct Invitation {
+    pub id: Uuid,
+    pub tenant_id: Uuid,
+    pub email: String,
+    pub role: String,
+    #[serde(skip_serializing)]
+    pub token_hash: String,
+    pub invited_by: Uuid,
+    pub expires_at: DateTime<Utc>,
+    pub accepted_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
 }
 

@@ -386,9 +386,30 @@ fn create_pipeline(
     // Set up input injection on the data channel
     let injector = Arc::new(InputInjector::new()?);
 
+    // Permission state: defaults to full_control. Browser can downgrade to view_only.
+    // Use atomic for lock-free updates.
+    let permission_view_only = Arc::new(std::sync::atomic::AtomicBool::new(false));
+
     let inj = injector.clone();
+    let perm_check = permission_view_only.clone();
     input_dc.connect("on-message-string", false, move |args| {
         let msg = args[1].get::<String>().expect("message must be string");
+
+        // Check if it's a permission message
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&msg) {
+            if val.get("type").and_then(|v| v.as_str()) == Some("permission") {
+                let is_view_only = val.get("value").and_then(|v| v.as_str()) == Some("view_only");
+                perm_check.store(is_view_only, std::sync::atomic::Ordering::Relaxed);
+                info!("Session permission set to {}", if is_view_only { "view_only" } else { "full_control" });
+                return None;
+            }
+        }
+
+        // Drop input events if view-only
+        if perm_check.load(std::sync::atomic::Ordering::Relaxed) {
+            return None;
+        }
+
         match serde_json::from_str::<InputEvent>(&msg) {
             Ok(event) => {
                 if let Err(e) = inj.handle_event(&event) {

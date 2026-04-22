@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
-import { machinesApi, sessionsApi } from '../lib/api';
-import type { Machine, CreateMachineResponse } from '../lib/api';
-import { Monitor, Plus, Trash2, LogOut, Copy, Wifi, WifiOff, Download } from 'lucide-react';
+import { machinesApi, sessionsApi, machineAccessApi, usersApi } from '../lib/api';
+import type { Machine, CreateMachineResponse, AccessUser, User } from '../lib/api';
+import { Monitor, Plus, Trash2, LogOut, Copy, Wifi, WifiOff, Download, Users, Eye, Settings, Lock, Globe, X } from 'lucide-react';
 
 export default function Dashboard() {
   const { user, logout } = useAuth();
@@ -13,6 +13,11 @@ export default function Dashboard() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [newMachineName, setNewMachineName] = useState('');
   const [newMachineResult, setNewMachineResult] = useState<CreateMachineResponse | null>(null);
+  const [accessModal, setAccessModal] = useState<Machine | null>(null);
+  const [accessUsers, setAccessUsers] = useState<AccessUser[]>([]);
+  const [orgUsers, setOrgUsers] = useState<User[]>([]);
+
+  const isAdmin = user?.role === 'owner' || user?.role === 'admin';
 
   const fetchMachines = async () => {
     try {
@@ -48,18 +53,53 @@ export default function Dashboard() {
     fetchMachines();
   };
 
-  const handleConnect = async (machine: Machine) => {
+  const handleConnect = async (machine: Machine, permission: 'full_control' | 'view_only' = 'full_control') => {
     try {
-      const { data } = await sessionsApi.create(machine.id);
+      const { data } = await sessionsApi.create(machine.id, permission);
       const params = new URLSearchParams({
         relay: data.relay_url,
         machine: data.machine_id,
         token: data.session_token,
+        permission,
       });
       window.open(`/viewer-test.html?${params.toString()}`, '_blank');
     } catch (err: any) {
       alert(err.response?.data || 'Failed to start session');
     }
+  };
+
+  const openAccessModal = async (machine: Machine) => {
+    setAccessModal(machine);
+    try {
+      const [access, users] = await Promise.all([
+        machineAccessApi.list(machine.id),
+        usersApi.list(),
+      ]);
+      setAccessUsers(access.data);
+      setOrgUsers(users.data);
+    } catch {}
+  };
+
+  const handleToggleAccessMode = async () => {
+    if (!accessModal) return;
+    const newMode = accessModal.access_mode === 'public' ? 'restricted' : 'public';
+    await machineAccessApi.updateMode(accessModal.id, newMode);
+    setAccessModal({ ...accessModal, access_mode: newMode });
+    fetchMachines();
+  };
+
+  const handleGrantAccess = async (userId: string) => {
+    if (!accessModal) return;
+    await machineAccessApi.grant(accessModal.id, userId);
+    const res = await machineAccessApi.list(accessModal.id);
+    setAccessUsers(res.data);
+  };
+
+  const handleRevokeAccess = async (userId: string) => {
+    if (!accessModal) return;
+    await machineAccessApi.revoke(accessModal.id, userId);
+    const res = await machineAccessApi.list(accessModal.id);
+    setAccessUsers(res.data);
   };
 
   const handleLogout = () => {
@@ -78,7 +118,10 @@ export default function Dashboard() {
           <span className="text-sm text-gray-400">{user?.tenant_name}</span>
         </div>
         <div className="flex items-center gap-4">
-          <span className="text-sm text-gray-400">{user?.display_name}</span>
+          <button onClick={() => navigate('/team')} className="text-gray-400 hover:text-white flex items-center gap-1 text-sm" title="Team">
+            <Users className="w-4 h-4" /> Team
+          </button>
+          <span className="text-sm text-gray-400">{user?.display_name} <span className="text-xs text-gray-600">({user?.role})</span></span>
           <button onClick={handleLogout} className="text-gray-400 hover:text-white" title="Sign out">
             <LogOut className="w-4 h-4" />
           </button>
@@ -89,21 +132,23 @@ export default function Dashboard() {
       <main className="max-w-5xl mx-auto px-6 py-8">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-xl font-semibold text-white">Machines</h2>
-          <div className="flex items-center gap-2">
-            <a
-              href={`${import.meta.env.VITE_API_URL || ''}/downloads/agent/linux/deb`}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 rounded text-sm font-medium"
-              title="Download Linux .deb installer"
-            >
-              <Download className="w-4 h-4" /> Download Agent (.deb)
-            </a>
-            <button
-              onClick={() => { setShowAddModal(true); setNewMachineName(''); setNewMachineResult(null); }}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-medium"
-            >
-              <Plus className="w-4 h-4" /> Add Machine
-            </button>
-          </div>
+          {isAdmin && (
+            <div className="flex items-center gap-2">
+              <a
+                href={`${import.meta.env.VITE_API_URL || ''}/downloads/agent/linux/deb`}
+                className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 rounded text-sm font-medium"
+                title="Download Linux .deb installer"
+              >
+                <Download className="w-4 h-4" /> Download Agent (.deb)
+              </a>
+              <button
+                onClick={() => { setShowAddModal(true); setNewMachineName(''); setNewMachineResult(null); }}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-medium"
+              >
+                <Plus className="w-4 h-4" /> Add Machine
+              </button>
+            </div>
+          )}
         </div>
 
         {loading ? (
@@ -139,20 +184,44 @@ export default function Dashboard() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
+                  {m.access_mode === 'restricted' && (
+                    <span className="text-xs text-yellow-500 flex items-center gap-1" title="Restricted access">
+                      <Lock className="w-3 h-3" /> Restricted
+                    </span>
+                  )}
                   <button
-                    onClick={() => handleConnect(m)}
+                    onClick={() => handleConnect(m, 'view_only')}
+                    disabled={!m.is_online}
+                    className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-30 text-gray-300 rounded text-sm flex items-center gap-1"
+                    title="View only"
+                  >
+                    <Eye className="w-4 h-4" /> View
+                  </button>
+                  <button
+                    onClick={() => handleConnect(m, 'full_control')}
                     disabled={!m.is_online}
                     className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-30 disabled:cursor-not-allowed text-white rounded text-sm"
                   >
                     Connect
                   </button>
-                  <button
-                    onClick={() => handleDeleteMachine(m.id, m.name)}
-                    className="p-1.5 text-gray-500 hover:text-red-400"
-                    title="Delete"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  {isAdmin && (
+                    <>
+                      <button
+                        onClick={() => openAccessModal(m)}
+                        className="p-1.5 text-gray-500 hover:text-white"
+                        title="Access control"
+                      >
+                        <Settings className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteMachine(m.id, m.name)}
+                        className="p-1.5 text-gray-500 hover:text-red-400"
+                        title="Delete"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             ))}
@@ -218,6 +287,84 @@ export default function Dashboard() {
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Access control modal */}
+      {accessModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-900 border border-gray-700 rounded-lg p-6 w-full max-w-md">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white">Access: {accessModal.name}</h3>
+              <button onClick={() => setAccessModal(null)} className="text-gray-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="mb-4">
+              <div className="flex items-center justify-between bg-gray-800 border border-gray-700 rounded p-3">
+                <div className="flex items-center gap-2">
+                  {accessModal.access_mode === 'public' ? (
+                    <><Globe className="w-4 h-4 text-green-400" /><span className="text-white text-sm">Public (all org members)</span></>
+                  ) : (
+                    <><Lock className="w-4 h-4 text-yellow-500" /><span className="text-white text-sm">Restricted (specific users only)</span></>
+                  )}
+                </div>
+                <button
+                  onClick={handleToggleAccessMode}
+                  className="text-xs bg-gray-700 hover:bg-gray-600 text-white px-2 py-1 rounded"
+                >
+                  Switch to {accessModal.access_mode === 'public' ? 'Restricted' : 'Public'}
+                </button>
+              </div>
+            </div>
+
+            {accessModal.access_mode === 'restricted' && (
+              <>
+                <h4 className="text-sm text-gray-400 mb-2 uppercase tracking-wide">Users with access ({accessUsers.length})</h4>
+                {accessUsers.length === 0 ? (
+                  <p className="text-sm text-gray-500 mb-3">No users have access yet. Only admins and owners can access this machine.</p>
+                ) : (
+                  <div className="space-y-1 mb-4">
+                    {accessUsers.map((u) => (
+                      <div key={u.user_id} className="flex items-center justify-between bg-gray-800 rounded px-3 py-2">
+                        <div className="text-sm">
+                          <div className="text-white">{u.display_name}</div>
+                          <div className="text-xs text-gray-500">{u.email}</div>
+                        </div>
+                        <button onClick={() => handleRevokeAccess(u.user_id)} className="text-gray-500 hover:text-red-400" title="Revoke">
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <h4 className="text-sm text-gray-400 mb-2 uppercase tracking-wide">Grant access</h4>
+                <div className="space-y-1 max-h-40 overflow-y-auto">
+                  {orgUsers
+                    .filter((u) => u.role === 'member' && !accessUsers.some((a) => a.user_id === u.id))
+                    .map((u) => (
+                      <div key={u.id} className="flex items-center justify-between bg-gray-800 rounded px-3 py-2">
+                        <div className="text-sm">
+                          <div className="text-white">{u.display_name}</div>
+                          <div className="text-xs text-gray-500">{u.email}</div>
+                        </div>
+                        <button onClick={() => handleGrantAccess(u.id)} className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded">
+                          Grant
+                        </button>
+                      </div>
+                    ))}
+                </div>
+              </>
+            )}
+
+            <div className="flex justify-end mt-4">
+              <button onClick={() => setAccessModal(null)} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm">
+                Done
+              </button>
+            </div>
           </div>
         </div>
       )}

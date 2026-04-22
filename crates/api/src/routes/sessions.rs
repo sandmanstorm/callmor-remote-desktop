@@ -47,8 +47,27 @@ pub async fn create_session(
 
     let machine = machine.ok_or((StatusCode::NOT_FOUND, "Machine not found".into()))?;
 
+    // Check access
+    let has_access = crate::routes::machines::user_has_access(
+        &state.db,
+        claims.sub,
+        claims.tenant_id,
+        machine.id,
+        &claims.role,
+    )
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+    if !has_access {
+        return Err((StatusCode::FORBIDDEN, "No access to this machine".into()));
+    }
+
     if !machine.is_online {
         return Err((StatusCode::CONFLICT, "Machine is offline".into()));
+    }
+
+    // Validate permission
+    if !["view_only", "full_control"].contains(&req.permission.as_str()) {
+        return Err((StatusCode::BAD_REQUEST, "Invalid permission".into()));
     }
 
     // Create session row
